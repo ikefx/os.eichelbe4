@@ -25,23 +25,29 @@ int main(int argc, char * argv[]){
 
 	sem_t *semaphore = sem_open("/semaphore_example", O_RDWR);
 	if(semaphore == SEM_FAILED){
-		perror("sem_open(3) failed");
+		perror("sem_open(3) failed in child ln28");
 		exit(EXIT_FAILURE);
 	}
 
-	sem_wait(semaphore);
+	if(sem_wait(semaphore) < 0){
+		perror("sem_wait() failed in child");
+	}
+
 	/* if Either argv was empty or not supplied */
 	if(argc <= 1){
 		return 0;
 	} else if(argv[1][0] == '\0'){
 		return 0;
 	}
-	
-	printf("%s %s", argv[1], (isPalindrome(argv[1])) ? "is a palindrome\n" : "is not palindrome\n");
+	printf("\tPID:%d| %s %s", getpid(), argv[1], (isPalindrome(argv[1])) ? "is a palindrome\n" : "is not palindrome\n");
 	isPalindrome(argv[1]) ? writeIsPalin(argv[1]) : writeNoPalin(argv[1]);
 	
-	sem_post(semaphore);
-	sem_close(semaphore);
+	if(sem_post(semaphore) < 0){
+		perror("sem_post() error in child");
+	}
+	if(sem_close(semaphore) < 0){
+		perror("sem_close() error in child");
+	}
 	return 0;
 }
 
@@ -64,6 +70,7 @@ void writeIsPalin(char * str){
 	sprintf(wroteLine, "%s\n", str);
 	fprintf(fp, wroteLine);
 	fclose(fp);
+	return;
 }
 
 void writeNoPalin(char * str){
@@ -74,4 +81,5 @@ void writeNoPalin(char * str){
 	sprintf(wroteLine, "%s\n", str);
 	fprintf(fp, wroteLine);
 	fclose(fp);
+	return;
 }

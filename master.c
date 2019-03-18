@@ -27,11 +27,16 @@
 #define SHMKEY 859047
 #define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP )
 
+void clearOldOutput();
+void cleanExit(char * str);
+
 int main(int argc, char * argv[]){
 	
+	clearOldOutput();
+
 	sem_t *semaphore = sem_open("/semaphore_example", O_CREAT | O_EXCL, SEM_PERMS, 1);
 	if(semaphore == SEM_FAILED){
-		perror("sem_open(3) failed");
+		perror("sem_open(3) failed in master ln39");
 		sem_unlink("/semaphore_example");
 		exit(EXIT_FAILURE);
 	}
@@ -39,23 +44,39 @@ int main(int argc, char * argv[]){
 	int inputIndex = 101;
 	char * indexStr = NULL;
 	pid_t pid;
-
-	for(int i = 0; i < 5; i++){
+	
+	/* create children */
+	for(int i = 0; i < 19; i++){
 		if((pid = fork()) == 0){
 			indexStr = malloc(sizeof(char)*(int)(inputIndex));
 			sprintf(indexStr, "%d", inputIndex);
-			printf("conversion %s test\n", indexStr);
 			char * args[] = {"./palin", indexStr, '\0'};
-			printf("conversion %s test\n", args[1]);
 			execvp("./palin", args);	
 		}
 	}
+	
+	/* wait for children then unlink and clear memeory */
+	cleanExit(indexStr);
+	return 0;
+}
 
-	if(pid != 0) {
-		int returnStatus;
-		waitpid(pid, NULL, 0);
-		sem_unlink("/semaphore_example");
-		free(indexStr);
-		return 0;
+void clearOldOutput(){
+	/* delete previous output files */
+	int status1 = remove("palin.out");
+	int status2 = remove("nopalin.out");
+	if(status1 == 0){
+		printf("Previous %s deleted.\n", "palin.out");
 	}
+	if(status2 == 0){
+		printf("Previous %s deleted.\n", "nopalin.out");
+	}
+	if(status2 == 0 || status1 == 0){
+		printf("\n");
+	}
+	return;
+}
+void cleanExit(char * str){
+	for(int i = 0; i < 19; i++) wait(NULL);
+	sem_unlink("/semaphore_example");
+	free(str);
 }
