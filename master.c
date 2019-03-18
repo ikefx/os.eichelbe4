@@ -25,16 +25,22 @@
 #include <sys/wait.h>
 
 #define SHMKEY 859047
+#define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP )
 
 int main(int argc, char * argv[]){
-	sem_t mutex;
-	sem_init(&mutex, 1, 1);
+	
+	sem_t *semaphore = sem_open("/semaphore_example", O_CREAT | O_EXCL, SEM_PERMS, 1);
+	if(semaphore == SEM_FAILED){
+		perror("sem_open(3) failed");
+		sem_unlink("/semaphore_example");
+		exit(EXIT_FAILURE);
+	}
 
 	int inputIndex = 101;
 	char * indexStr = NULL;
 	pid_t pid;
 
-	for(int i = 0; i < 1; i++){
+	for(int i = 0; i < 5; i++){
 		if((pid = fork()) == 0){
 			indexStr = malloc(sizeof(char)*(int)(inputIndex));
 			sprintf(indexStr, "%d", inputIndex);
@@ -42,12 +48,14 @@ int main(int argc, char * argv[]){
 			char * args[] = {"./palin", indexStr, '\0'};
 			printf("conversion %s test\n", args[1]);
 			execvp("./palin", args);	
-		} else {
-			int returnStatus;
-			waitpid(pid, &returnStatus, 0);
-			free(indexStr);
-			sem_destroy(&mutex);
-			return 0;
 		}
+	}
+
+	if(pid != 0) {
+		int returnStatus;
+		waitpid(pid, NULL, 0);
+		sem_unlink("/semaphore_example");
+		free(indexStr);
+		return 0;
 	}
 }
