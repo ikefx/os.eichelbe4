@@ -19,7 +19,7 @@
 bool isPalindrome(char * str);
 void writeIsPalin(char * str);
 void writeNoPalin(char * str);
-
+void removeSpaces(char * str);
 
 int main(int argc, char * argv[]){
 
@@ -39,6 +39,10 @@ int main(int argc, char * argv[]){
 	} else if(argv[1][0] == '\0'){
 		return 0;
 	}
+	/* convert argv1 to long */
+	char * indexPtr;
+	long indexLong = strtol(argv[1], &indexPtr, 10);
+
 	printf("\tPID:%d| %s %s", getpid(), argv[1], (isPalindrome(argv[1])) ? "is a palindrome\n" : "is not palindrome\n");
 	isPalindrome(argv[1]) ? writeIsPalin(argv[1]) : writeNoPalin(argv[1]);
 	
@@ -52,10 +56,14 @@ int main(int argc, char * argv[]){
 }
 
 bool isPalindrome(char * str){
+	
+	char * strDup = strdup(str);
+	removeSpaces(strDup);
+
 	int low = 0;
-	int high = strlen(str) - 1;
+	int high = strlen(strDup) - 1;
 	while( high > low ){
-		if(str[low++] != str[high--]){
+		if(strDup[low++] != strDup[high--]){
 			return false;
 		}
 	}
@@ -82,4 +90,14 @@ void writeNoPalin(char * str){
 	fprintf(fp, wroteLine);
 	fclose(fp);
 	return;
+}
+
+void removeSpaces(char * str){
+	/* remove white spaces from string */
+	int count = 0;
+	for(int i = 0; str[i]; i++){
+		if(str[i] != ' ')
+			str[count++] = str[i];
+	}
+	str[count] = '\0';
 }
