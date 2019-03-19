@@ -25,14 +25,21 @@
 #include <sys/wait.h>
 
 #define SHMKEY 859047
-#define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP )
+#define FLAGS (O_CREAT | O_EXCL)
+#define PERMS (mode_t) (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 
+
+int getnamed(char *name, sem_t **sem, int val);
 char ** splitString(char * str, const char delimiter);
 int getLineCount(char * filename);
 void clearOldOutput();
 void cleanExit(char * str);
+void sigintHandler(int sig_num);
 
 int main(int argc, char * argv[]){
+
+
+	signal(SIGINT, sigintHandler);
 
 	char ** tokens;
 	int tokenLines;
@@ -67,43 +74,66 @@ int main(int argc, char * argv[]){
 	clearOldOutput();
 
 	/* create names semaphore */
-	sem_t *semaphore = sem_open("/semaphore_example", O_CREAT | O_EXCL, SEM_PERMS, 1);
-	if(semaphore == SEM_FAILED){
-		perror("sem_open(3) failed in master ln39");
-		sem_unlink("/semaphore_example");
-		exit(EXIT_FAILURE);
+//	sem_t * semaphore = sem_open("/SEMA", O_CREAT,  0644, 0);
+//	if(semaphore == SEM_FAILED){
+//		perror("sem_open(3) failed in master");
+//		sem_unlink("/SEMA");
+//		exit(EXIT_FAILURE);
+//	}
+//	int num;
+//	sem_getvalue(semaphore, &num);
+	sem_t *semaphore;
+	if(getnamed("/SEMA", &semaphore, 1) == -1){
+		perror("Failed to create named semaphore");
+		return 1;
 	}
 
+//	printf("%d\n", num);
 	/* place tokens (char**) into shared memory */
-	char ** sharedPtr;
 	int fd_shm;
-	fd_shm = shm_open ("/STRINGS", O_RDWR | O_CREAT, 0660);
+	fd_shm = shm_open ("STRINGS", O_CREAT | O_RDWR, 0666);
 	ftruncate(fd_shm, sizeof(char[256][256]));
-	sharedPtr = mmap(NULL, sizeof(char[256][256]), PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
-	sharedPtr = tokens;
-
-	printf("%s\n", sharedPtr[10]);
+	char ** sharedPtr = mmap(0, sizeof(char[256][256]), PROT_WRITE, MAP_SHARED, fd_shm, 0);
+	printf("INPUT:\n");
+	for(int i = 0; i < tokenLines; i++){
+		sharedPtr[i] = strdup(tokens[i]);
+		printf("%d\t%s\n", i, sharedPtr[i]);
+	}
+	printf("\n");
 
 	int inputIndex = 101;
 	char * indexStr = NULL;
 	pid_t pid;
-	
 	/* create children */
-	for(int i = 0; i < 19; i++){
+	for(int i = 0; i < 5; i++){
 		if((pid = fork()) == 0){
 			indexStr = malloc(sizeof(char)*(int)(inputIndex));
 			sprintf(indexStr, "%d", inputIndex);
 			char * args[] = {"./palin", "eva can i stab bats in a cave", '\0'};
+			while(sem_wait(semaphore)== -1);
 			execvp("./palin", args);	
-		}
+	}
 	}
 	
 	/* wait for children then unlink and clear memeory */
 	cleanExit(indexStr);
+	sem_unlink("/SEMA");
 	shm_unlink("STRINGS");
 	return 0;
 }
 
+int getnamed(char *name, sem_t **sem, int val){
+	/* a function to access a named seamphore, creating it if it dosn't already exist */
+	while(((*sem = sem_open(name, FLAGS , PERMS , val)) == SEM_FAILED) && (errno == EINTR));
+	if(*sem != SEM_FAILED)
+		return 0;
+	if(errno != EEXIST)
+		return -1;
+	while(((*sem = sem_open(name, 0)) == SEM_FAILED) && (errno == EINTR));
+	if(*sem != SEM_FAILED)
+		return 0;
+	return -1;	
+}
 char ** splitString(char * str, const char delimiter){
 	/* generate 2d array of strings from a string, delimited by parameter */
 	char ** result = 0;
@@ -173,6 +203,16 @@ void clearOldOutput(){
 }
 void cleanExit(char * str){
 	for(int i = 0; i < 19; i++) wait(NULL);
-	sem_unlink("/semaphore_example");
+	//sem_unlink("/semaphore_example");
 	free(str);
+	shm_unlink("STRINGS");
+	sem_unlink("/SEMA");
+}
+
+void sigintHandler(int sig_num){
+	signal(SIGINT, sigintHandler);
+	printf("\nTerminating all...\n");
+	shm_unlink("STRINGS");
+	sem_unlink("/SEMA");
+	exit(0);
 }
