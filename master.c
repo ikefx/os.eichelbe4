@@ -35,36 +35,64 @@ int getLineCount(char * filename);
 void clearOldOutput();
 void cleanExit(char * str);
 void sigintHandler(int sig_num);
+void printOptions();
 
 int main(int argc, char * argv[]){
 
+	extern int optind;
+	extern char * optarg;
+	static char usage[] = "usage: [-h] [-i string]\n";
+	int c;
+	char * inFile = "input.txt";
+	while(( c = getopt ( argc, argv, "hi:i")) != -1){
+		switch(c){
+			case 'h':
+				printOptions();
+				break;
+			case 'i': 
+				inFile = optarg;
+				break;
+			case '?':
+				if(optopt == 'i'){
+					fprintf(stderr, "ERROR:\n   --> Expected an argument for -i (string), see usage\n\t%s %s", argv[0], usage);
+				}
+				else if (isprint(optopt))
+					fprintf(stderr, "Unknown option -%c'.  See usage\n", optopt);
+				else
+					fprintf(stderr, "Unknown option character.  See usage\n");
+				return 1;
+			default:
+				abort();
+		}
+	}
 
 	signal(SIGINT, sigintHandler);
-
 	char ** tokens;
 	int tokenLines;
+
 	/* read input file */
-	FILE *infile;
+	FILE *file;
 	int errnum;
-	infile = fopen("input.txt", "r");
-	if(infile == NULL){
+	file = fopen(inFile, "r");
+	if(file == NULL){
 		errnum = errno;
 		fprintf(stderr, "\t%sValue of errno: %d\n", argv[0], errno);
 		perror("\tError with fopen()");
-		fprintf(stderr, "\tError opening file: %s\n", strerror(errnum));
+		fprintf(stderr, "\tError opening input file: %s\n", strerror(errnum));
+		exit(1);
 	} else {
 		/* get file size with fseek, rewind with fseek, assign file content to char pointer */
-		infile = fopen("input.txt", "rb");
-		fseek(infile, 0, SEEK_END);
-		long fsize = ftell(infile);
-		fseek(infile, 0, SEEK_SET);	
+		file = fopen(inFile, "rb");
+		fseek(file, 0, SEEK_END);
+		long fsize = ftell(file);
+		fseek(file, 0, SEEK_SET);	
 		char * cdata = malloc(fsize + 1);
-		fread(cdata, fsize, 1, infile);
-		fclose(infile);
+		fread(cdata, fsize, 1, file);
+		fclose(file);
 
 		/* parse file content into 2d char array and get line count */
 		tokenLines = getLineCount("input.txt");
-		size_t dataSize = strlen(cdata) - 2;
+		size_t dataSize = strlen(cdata)-1;
 		cdata[dataSize] = '\0';
 		char * cdataDup = strdup(cdata);
 		tokens = splitString(cdataDup, '\n');
@@ -74,51 +102,63 @@ int main(int argc, char * argv[]){
 	clearOldOutput();
 
 	/* create names semaphore */
-//	sem_t * semaphore = sem_open("/SEMA", O_CREAT,  0644, 0);
-//	if(semaphore == SEM_FAILED){
-//		perror("sem_open(3) failed in master");
-//		sem_unlink("/SEMA");
-//		exit(EXIT_FAILURE);
-//	}
-//	int num;
-//	sem_getvalue(semaphore, &num);
 	sem_t *semaphore;
 	if(getnamed("/SEMA", &semaphore, 1) == -1){
 		perror("Failed to create named semaphore");
 		return 1;
 	}
+//	
+//	int shmid = shmget(SHMKEY, 4*sizeof(char), IPC_CREAT | 0666);
+//	if(shmid == -1){
+//		fprintf(stderr, "Error in shmget\n");
+//		exit(1);
+//	}
+//	char * buffer = (char*)(shmat(shmid, 0,0));
+//	char * shBuff = (char*)(buffer);
 
-//	printf("%d\n", num);
+//	for(int i = 0; i < tokenLines; i++){
+//		sprintf(shBuff, "%s", tokens[i]);
+//		printf("%s\n", shBuff);
+//		printf("%s\n", buffer);
+//
+//	}
+
+//	char * strPtr = (char*)(buffer);
+
+//	for(int i = 0; i < tokenLines; i++){
+//		strPtr[i] = strdup(tokens[i]);
+//	}
+
+
 	/* place tokens (char**) into shared memory */
-	int fd_shm;
-	fd_shm = shm_open ("STRINGS", O_CREAT | O_RDWR, 0666);
-	ftruncate(fd_shm, sizeof(char[256][256]));
-	char ** sharedPtr = mmap(0, sizeof(char[256][256]), PROT_WRITE, MAP_SHARED, fd_shm, 0);
-	printf("INPUT:\n");
-	for(int i = 0; i < tokenLines; i++){
-		sharedPtr[i] = strdup(tokens[i]);
-		printf("%d\t%s\n", i, sharedPtr[i]);
-	}
-	printf("\n");
+//	int fd_shm;
+//	fd_shm = shm_open ("STRINGS", O_CREAT | O_RDWR, 0666);
+//	ftruncate(fd_shm, sizeof(char[tokenLines+1][256]));
+//	char ** sharedPtr = mmap(0, sizeof(char[tokenLines+1][256]), PROT_WRITE, MAP_SHARED, fd_shm, 0);
+//	printf("INPUT:\n");
+//	for(int i = 0; i < tokenLines; i++){
+//		sharedPtr[i] = strdup(tokens[i]);
+//		printf("%d\t%s\n", i, sharedPtr[i]);
+//	}
+//	printf("\n");
 
-	int inputIndex = 101;
-	char * indexStr = NULL;
+	char * tmpStr = (char*)malloc(5*sizeof(char));
 	pid_t pid;
 	/* create children */
-	for(int i = 0; i < 5; i++){
+	for(int i = 0; i < tokenLines; i++){
+		char iStr[32];
 		if((pid = fork()) == 0){
-			indexStr = malloc(sizeof(char)*(int)(inputIndex));
-			sprintf(indexStr, "%d", inputIndex);
-			char * args[] = {"./palin", "eva can i stab bats in a cave", '\0'};
-			while(sem_wait(semaphore)== -1);
+			sprintf(iStr, "%d", i);
+			char * args[] = {"./palin", tokens[i], iStr, '\0'};
 			execvp("./palin", args);	
-	}
+		}
 	}
 	
 	/* wait for children then unlink and clear memeory */
-	cleanExit(indexStr);
+	cleanExit(tmpStr);
+//	free(tokenLinesStr);
 	sem_unlink("/SEMA");
-	shm_unlink("STRINGS");
+//	shm_unlink("STRINGS");
 	return 0;
 }
 
@@ -214,5 +254,13 @@ void sigintHandler(int sig_num){
 	printf("\nTerminating all...\n");
 	shm_unlink("STRINGS");
 	sem_unlink("/SEMA");
+	exit(0);
+}
+
+void printOptions(){
+	/* print command line arguments for user reference */
+	printf("\n========== Command-Line Options ==========\n\n> Optional: -h (view command-line options)\n");
+	printf("> Optional: -i (specify input name, default input.txt)\n");
+	fflush(stdout);
 	exit(0);
 }

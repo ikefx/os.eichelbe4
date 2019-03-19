@@ -16,19 +16,25 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <stdbool.h>
 
-#define FLAGS (O_CREAT | O_EXCL)
+#define SHMKEY 859047
+
+#define FLAGS (O_RDONLY)
 #define PERMS (mode_t) (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 
 int getnamed(char *name, sem_t **sem, int val);
 bool isPalindrome(char * str);
-void writeIsPalin(char * str);
-void writeNoPalin(char * str);
+void writeIsPalin(char * str, int i);
+void writeNoPalin(char * str, int i);
 void removeSpaces(char * str);
+pid_t r_wait(int * stat_loc);
 
 int main(int argc, char * argv[]){
-
+	fflush(stdout);
+//	printf("%s\n", argv[2]);
+//	fflush(stdout);
 	/* if Either argv was empty or not supplied */
 	if(argc <= 1){
 		return 0;
@@ -36,42 +42,81 @@ int main(int argc, char * argv[]){
 		return 0;
 	}
 
+//	char * lenPtr;
+//	long len = strtol(argv[2], &lenPtr, 10);
+//
+//	char * indexPtr2;
+//	long index = strtol(argv[3], &indexPtr2, 10);
+
+//	int num;
 	/* load semaphore */
 	sem_t *semaphore;
 	if(getnamed("/SEMA", &semaphore, 1) == -1){
 		perror("Failed to create named semaphore");
 		return 1;
 	}
-	int num;
-	sem_getvalue(semaphore, &num);
-	printf("--> %d\n", num);
+
+
+//	int shmid = shmget(SHMKEY, 4*sizeof(char), IPC_CREAT | 0666);
+//	if(shmid == -1){
+///		fprintf(stderr, "Error in shmget\n");
+//		exit(1);
+//	}
+//	char * buffer = (char*)(shmat(shmid, 0,0));
+//	char * shBuff = (char*)(buffer);
+
+//	printf("TEST:%s\n", buffer);
+
+
+//	sem_getvalue(semaphore, &num);
+//	printf("SEMA in child: %d\n", sem_getvalue(semaphore, &num));
+
+//	while(sem_wait(semaphore) == -1)
+//		if(errno != EINTR){
+//			perror("Failed to lock semaphore");
+//			return 1;
+//		}
+
 	/* load strings from shared posix memory */
-	int fd_shm;
-	fd_shm = shm_open("STRINGS", O_RDONLY, 0666);
-	void ** sharedPtr = mmap(NULL, sizeof(char[256][256]), PROT_READ, MAP_SHARED, fd_shm, 0);
+//	int fd_shm;
+//	fd_shm = shm_open("STRINGS", O_RDONLY, 0666);
+//	void ** sharedPtr = mmap(NULL, sizeof(char[len+1][256]), PROT_READ, MAP_SHARED, fd_shm, 0);
+
+//	int fd_shm;
+//	fd_shm = shm_open("STRINGS", O_RDONLY, 0666);
+//	void ** shmPtr = mmap(0, sizeof(char[255]), PROT_READ, MAP_SHARED, fd_shm, 0);
+//	char * new = strdup((char*)shmPtr[0]);
+
+//	printf("THIS IS A TEST test: %s\n", (char*)sharedPtr[0]);
 
 	/* convert argv1 to long */
-	char * indexPtr;
-	long indexLong = strtol(argv[1], &indexPtr, 10);
+//	char * indexPtr;
+//	long indexLong = strtol(argv[1], &indexPtr, 10);
 
-	printf("\tPID:%d| %s %s", getpid(), argv[1], (isPalindrome(argv[1])) ? "is a palindrome\n" : "is not palindrome\n");
-	isPalindrome(argv[1]) ? writeIsPalin(argv[1]) : writeNoPalin(argv[1]);	
+
 	
-	shm_unlink("STRINGS");
+	/* convert arg3 to long */
+//	printf("%s\n", argv[2]);
+	char * iPtr;
+	long index = strtol(argv[2], &iPtr, 10);
+//	printf("%s ---- %ld\n", argv[2], index);
 
-	if(sem_post(semaphore) < 0){
-		perror("sem_post() error in child");
+	printf("\tPID:%d | \"%s\"\t%ld\n", getpid(), argv[1], index);
+	isPalindrome(argv[1]) ? writeIsPalin(argv[1], index) : writeNoPalin(argv[1], index);	
+	
+	while(sem_post(semaphore) == -1){
+		perror("failed to unlock semlock");
+		return 1;
 	}
 
+	if(r_wait(NULL) == -1)
+		return 1;
 
-	sem_getvalue(semaphore, &num);
-	printf("-->%d\n", num);
 	if(sem_close(semaphore) < 0){
 		perror("sem_close() error in child");
 	}
 	shm_unlink("/SEMA");	
-
-	return 0;
+	exit(0);
 }
 
 int getnamed(char *name, sem_t **sem, int val){
@@ -102,23 +147,23 @@ bool isPalindrome(char * str){
 	return true;
 }
 
-void writeIsPalin(char * str){
+void writeIsPalin(char * str, int i){
 	/* write string to palin.out */
 	FILE *fp;
 	fp = fopen("palin.out", "a");
 	char wroteLine[355];
-	sprintf(wroteLine, "%s\n", str);
+	sprintf(wroteLine, "%d %d \"%s\"\n", getpid(), i, str);
 	fprintf(fp, wroteLine);
 	fclose(fp);
 	return;
 }
 
-void writeNoPalin(char * str){
+void writeNoPalin(char * str, int i){
 	/* write string to nopalin.out */
 	FILE *fp;
 	fp = fopen("nopalin.out", "a");
-	char wroteLine[355];
-	sprintf(wroteLine, "%s\n", str);
+	char wroteLine[355];	
+	sprintf(wroteLine, "%d %d \"%s\"\n", getpid(), i, str);
 	fprintf(fp, wroteLine);
 	fclose(fp);
 	return;
@@ -132,4 +177,10 @@ void removeSpaces(char * str){
 			str[count++] = str[i];
 	}
 	str[count] = '\0';
+}
+
+pid_t r_wait(int * stat_loc){
+	int retval;
+	while(((retval = wait(stat_loc)) == -1) && (errno == EINTR));
+	return retval;
 }
