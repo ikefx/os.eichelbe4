@@ -15,6 +15,7 @@
 #include <stdbool.h>
 #include <signal.h>
 #include <math.h>
+#include <time.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <sys/mman.h>
@@ -33,7 +34,7 @@ int getnamed(char *name, sem_t **sem, int val);
 char ** splitString(char * str, const char delimiter);
 int getLineCount(char * filename);
 void clearOldOutput();
-void cleanExit(char * str);
+void cleanExit(char * str, int childCount);
 void sigintHandler(int sig_num);
 void printOptions();
 
@@ -147,19 +148,19 @@ int main(int argc, char * argv[]){
 	for(int i = 0; i < tokenLines-1; i++){
 		char iStr[32];
 		if((pid = fork()) == 0){
+			srand(time(NULL));
 			sprintf(iStr, "%d", i);
 			char * args[] = {"./palin", tokens[i], iStr, '\0'};
 			execvp("./palin", args);	
 		}
-	}
-	
-	/* wait for children then unlink and clear memeory */
+	}	
 
-	cleanExit(tmpStr);
+	/* wait for children then unlink and clear memeory */
+	cleanExit(tmpStr, tokenLines-1);
 //	free(tokenLinesStr);
 //	shmdt(buffer);
-	sem_unlink("/SEMA");
-	shm_unlink("STRINGS");
+//	sem_unlink("/SEMA");
+//	shm_unlink("STRINGS");
 	return 0;
 }
 
@@ -232,21 +233,36 @@ void clearOldOutput(){
 	int status1 = remove("palin.out");
 	int status2 = remove("nopalin.out");
 	if(status1 == 0){
-		printf("Previous %s deleted.\n", "palin.out");
+		printf("--> Previous %s deleted.\n", "palin.out");
 	}
 	if(status2 == 0){
-		printf("Previous %s deleted.\n", "nopalin.out");
+		printf("--> Previous %s deleted.\n", "nopalin.out");
 	}
 	if(status2 == 0 || status1 == 0){
 		printf("\n");
 	}
 	return;
 }
-void cleanExit(char * str){
-	for(int i = 0; i < 19; i++) wait(NULL);
+void cleanExit(char * str, int childC){
+	/* wait for children, if 100 seconds accures terminate premature */
+	time_t start, stop;
+	start = time(NULL);
+	for(int i = 0; i < 19; i++){
+		stop = time(NULL);	
+		if(stop - start > 100){		
+			printf("--> 100 seconds elapsed, terminating all processes.\n");
+			kill(0, SIGTERM);
+			free(str);
+			shm_unlink("STRINGS");
+			sem_unlink("/SEMA");
+		}
+		wait(NULL);
+	}
 	free(str);
 	shm_unlink("STRINGS");
 	sem_unlink("/SEMA");
+	printf("---> Finished.\n");
+	exit(0);
 }
 
 void sigintHandler(int sig_num){

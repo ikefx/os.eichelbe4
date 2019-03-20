@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
+#include <time.h>
 #include <semaphore.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
@@ -29,12 +30,12 @@ bool isPalindrome(char * str);
 void writeIsPalin(char * str, int i);
 void writeNoPalin(char * str, int i);
 void removeSpaces(char * str);
+int getRandomNumber(int low, int high);
 pid_t r_wait(int * stat_loc);
 
 int main(int argc, char * argv[]){
 	fflush(stdout);
-//	printf("%s\n", argv[2]);
-//	fflush(stdout);
+	srand(getpid());
 	/* if Either argv was empty or not supplied */
 	if(argc <= 1){
 		return 0;
@@ -42,13 +43,12 @@ int main(int argc, char * argv[]){
 		return 0;
 	}
 
-//	char * lenPtr;
-//	long len = strtol(argv[2], &lenPtr, 10);
-//
-//	char * indexPtr2;
-//	long index = strtol(argv[3], &indexPtr2, 10);
+	/* process is sleeping for rand() 6 times */
+	for( int i = 0; i < 5; i++ ){
+		sleep(getRandomNumber(0,10));
+		
+	}
 
-//	int num;
 	/* load semaphore */
 	sem_t *semaphore;
 	if(getnamed("/SEMA", &semaphore, 1) == -1){
@@ -99,7 +99,7 @@ int main(int argc, char * argv[]){
 	char * iPtr;
 	long index = strtol(argv[2], &iPtr, 10);
 
-	printf("\tPID:%d | \"%s\"\t%ld\n", getpid(), argv[1], index);
+	printf("\tPID:%d%38s\t%ld\t%s\n", getpid(), argv[1], index, (isPalindrome(argv[1]) ? "Palin? Yes" : "Palin? No"));
 	isPalindrome(argv[1]) ? writeIsPalin(argv[1], index) : writeNoPalin(argv[1], index);	
 	
 	while(sem_post(semaphore) == -1){
@@ -132,10 +132,9 @@ int getnamed(char *name, sem_t **sem, int val){
 }
 
 bool isPalindrome(char * str){
-	
+	/* check if string is a palindrome, ignore white spaces */
 	char * strDup = strdup(str);
 	removeSpaces(strDup);
-
 	int low = 0;
 	int high = strlen(strDup) - 1;
 	while( high > low ){
@@ -151,7 +150,7 @@ void writeIsPalin(char * str, int i){
 	FILE *fp;
 	fp = fopen("palin.out", "a");
 	char wroteLine[355];
-	sprintf(wroteLine, "%d %d \"%s\"\n", getpid(), i, str);
+	sprintf(wroteLine, "\t%d\t%d%38s\n", getpid(), i, str);
 	fprintf(fp, wroteLine);
 	fclose(fp);
 	return;
@@ -162,7 +161,7 @@ void writeNoPalin(char * str, int i){
 	FILE *fp;
 	fp = fopen("nopalin.out", "a");
 	char wroteLine[355];	
-	sprintf(wroteLine, "%d %d \"%s\"\n", getpid(), i, str);
+	sprintf(wroteLine, "\t%d\t%d%38s\n", getpid(), i, str);
 	fprintf(fp, wroteLine);
 	fclose(fp);
 	return;
@@ -176,6 +175,15 @@ void removeSpaces(char * str){
 			str[count++] = str[i];
 	}
 	str[count] = '\0';
+}
+
+int getRandomNumber(int low, int high){
+	/* get random number within range */
+	int num;
+	for ( int i = 0; i < 2; i++ ){
+		num = (rand() % (high - low + 1)) + low;
+	}
+	return num;
 }
 
 pid_t r_wait(int * stat_loc){
