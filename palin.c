@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
+#include <assert.h>
 #include <time.h>
 #include <semaphore.h>
 #include <sys/shm.h>
@@ -20,9 +21,7 @@
 #include <sys/wait.h>
 #include <stdbool.h>
 
-#define SHMKEY 859047
-
-#define FLAGS (O_RDONLY)
+#define FLAGS (O_RDWR | O_EXCL)
 #define PERMS (mode_t) (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 
 int getnamed(char *name, sem_t **sem, int val);
@@ -31,90 +30,64 @@ void writeIsPalin(char * str, int i);
 void writeNoPalin(char * str, int i);
 void removeSpaces(char * str);
 int getRandomNumber(int low, int high);
+char ** splitString(char * str, const char delimiter);
 pid_t r_wait(int * stat_loc);
 
 int main(int argc, char * argv[]){
 	fflush(stdout);
 	srand(getpid());
+
 	/* if Either argv was empty or not supplied */
 	if(argc <= 1){
 		return 0;
 	} else if(argv[1][0] == '\0'){
 		return 0;
 	}
+	
+	/* convert arg[3] to a long */
+	char * sizePtr;
+	long dataSize = strtoul(argv[3], &sizePtr, 10);
+
+	/* convert arg[2] to long */
+	char * iPtr;
+	long index = strtol(argv[2], &iPtr, 10);
+
+	/* read in strings from shared memory */
+	int shm_fd = shm_open("STRINGS", O_RDONLY, 0666);
+	void * cdata = mmap(0, dataSize, PROT_READ, MAP_SHARED, shm_fd, 0);
+	char * cdataDup = strdup(cdata);
+	char ** tokens;
 
 	/* process is sleeping for rand() 6 times */
 	for( int i = 0; i < 5; i++ ){
 		sleep(getRandomNumber(0,10));
-		
 	}
 
+	tokens = splitString(cdataDup, '\n');
+	
 	/* load semaphore */
 	sem_t *semaphore;
 	if(getnamed("/SEMA", &semaphore, 1) == -1){
 		perror("Failed to create named semaphore");
 		return 1;
 	}
-//	int num;
-//	printf("\tSEM in child begin: %d\n", sem_getvalue(semaphore, &num));
-//	int shmid = shmget(SHMKEY, 4*sizeof(char), IPC_CREAT | 0666);
-//	if(shmid == -1){
-///		fprintf(stderr, "Error in shmget\n");
-//		exit(1);
-//	}
-//	char * buffer = (char*)(shmat(shmid, 0,0));
-//	char * shBuff = (char*)(buffer);
-
-//	printf("TEST:%s\n", buffer);
-
-
-//	sem_getvalue(semaphore, &num);
-//	printf("SEMA in child: %d\n", sem_getvalue(semaphore, &num));
-
-//	while(sem_wait(semaphore) == -1)
-//		if(errno != EINTR){
-//			perror("Failed to lock semaphore");
-//			return 1;
-//		}
-
-	/* load strings from shared posix memory */
-//	int fd_shm;
-//	fd_shm = shm_open("STRINGS", O_RDONLY, 0666);
-//	void ** sharedPtr = mmap(NULL, sizeof(char[12][256]), PROT_READ, MAP_SHARED, fd_shm, 0);
-
-//	printf("%s\n", (char*)sharedPtr[0]);
-
-//	int fd_shm;
-//	fd_shm = shm_open("STRINGS", O_RDONLY, 0666);
-//	void ** shmPtr = mmap(0, sizeof(char[255]), PROT_READ, MAP_SHARED, fd_shm, 0);
-//	char * new = strdup((char*)shmPtr[0]);
-
-//	printf("THIS IS A TEST test: %s\n", (char*)sharedPtr[0]);
-
-	/* convert argv1 to long */
-//	char * indexPtr;
-//	long indexLong = strtol(argv[1], &indexPtr, 10);
-
-	/* convert arg3 to long */
-	char * iPtr;
-	long index = strtol(argv[2], &iPtr, 10);
-
-	printf("\tPID:%d%38s\t%ld\t%s\n", getpid(), argv[1], index, (isPalindrome(argv[1]) ? "Palin? Yes" : "Palin? No"));
-	isPalindrome(argv[1]) ? writeIsPalin(argv[1], index) : writeNoPalin(argv[1], index);	
+	
+	/* Do palindrome check and output result to file & stdout */
+	printf("\tPID:%d%38s  \t%ld\t%s\n", getpid(), tokens[index], index, (isPalindrome(tokens[index]) ? "Palin? Yes" : "Palin? No"));
+	isPalindrome(tokens[index]) ? writeIsPalin(tokens[index], index) : writeNoPalin(tokens[index], index);	
 	
 	while(sem_post(semaphore) == -1){
 		perror("failed to unlock semlock");
 		return 1;
 	}
 
-//	printf("\tSEM in child after post: %d\n", sem_getvalue(semaphore, &num));
 	if(r_wait(NULL) == -1)
 		return 1;
 
 	if(sem_close(semaphore) < 0){
 		perror("sem_close() error in child");
 	}
-//	shm_unlink("/SEMA");	
+	shm_unlink("STRINGS");
 	exit(0);
 }
 
@@ -177,6 +150,39 @@ void removeSpaces(char * str){
 	str[count] = '\0';
 }
 
+char ** splitString(char * str, const char delimiter){
+	/* generate 2d array of strings from a string, delimited by parameter */
+	char ** result = 0;
+	size_t count = 0;
+	char * tmp = str;
+	char * last = 0;
+	char delim[2];
+	delim[0] = delimiter;
+	delim[1] = 0;
+	while(*tmp){
+		if(delimiter == *tmp){
+			count++;
+			last = tmp;
+		}
+		tmp++;
+	}
+	count += last < (str + strlen(str) - 1);
+	count++;
+	result = malloc(sizeof(char*) * count);	
+	if(result){
+		size_t idx = 0;
+		char * token = strtok(str, delim);
+		while(token){
+			assert(idx < count);
+			*(result + idx++) = strdup(token);
+			token = strtok(0, delim);
+		}
+		assert(idx == count - 1);
+		*(result + idx) = 0;
+	}
+	return result;
+}
+
 int getRandomNumber(int low, int high){
 	/* get random number within range */
 	int num;
@@ -187,6 +193,7 @@ int getRandomNumber(int low, int high){
 }
 
 pid_t r_wait(int * stat_loc){
+	/* a function that restarts wait if interrupted by a signal */
 	int retval;
 	while(((retval = wait(stat_loc)) == -1) && (errno == EINTR));
 	return retval;

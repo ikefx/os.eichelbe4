@@ -25,10 +25,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#define SHMKEY 859047
 #define FLAGS (O_CREAT | O_EXCL)
 #define PERMS (mode_t) (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
-
 
 int getnamed(char *name, sem_t **sem, int val);
 char ** splitString(char * str, const char delimiter);
@@ -66,11 +64,13 @@ int main(int argc, char * argv[]){
 				abort();
 		}
 	}
-
+	printf("\t\t--> Master Start <--\n");
 	signal(SIGINT, sigintHandler);
-	char ** tokens;
+	
 	int tokenLines;
-
+	char * cdata;
+	size_t dataSize;
+	
 	/* read input file */
 	FILE *file;
 	int errnum;
@@ -87,20 +87,24 @@ int main(int argc, char * argv[]){
 		fseek(file, 0, SEEK_END);
 		long fsize = ftell(file);
 		fseek(file, 0, SEEK_SET);	
-		char * cdata = malloc(fsize + 1);
+		cdata = malloc(fsize + 1);
 		fread(cdata, fsize, 1, file);
 		fclose(file);
 
 		/* parse file content into 2d char array and get line count */
 		tokenLines = getLineCount("input.txt");
-		size_t dataSize = strlen(cdata)-1;
+		dataSize = strlen(cdata)-1;
 		cdata[dataSize] = '\0';
-		char * cdataDup = strdup(cdata);
-		tokens = splitString(cdataDup, '\n');
 		fflush(stdout);
 	}
-	
 	clearOldOutput();
+
+	/* place cdata into shared memory */
+	int fd_shm;
+	fd_shm = shm_open( "STRINGS", O_CREAT | O_RDWR, 0666);
+	ftruncate( fd_shm, dataSize);
+	void * mapPtr = mmap(0, dataSize, PROT_WRITE, MAP_SHARED, fd_shm, 0);
+	sprintf(mapPtr, "%s", cdata);
 
 	/* create names semaphore */
 	sem_t *semaphore;
@@ -109,58 +113,23 @@ int main(int argc, char * argv[]){
 		return 1;
 	}
 
-//	const int SIZE = sizeof(tokens);
-//	int shmid = shmget(SHMKEY, sizeof(char) * 4, IPC_CREAT | 0666);
-//	if(shmid == -1){
-//		fprintf(stderr, "Error in shmget\n");
-//		exit(1);
-//	}
-//	char ** buffer = (char**)(shmat(shmid, 0,0));
-//	char * shBuff = (char*)(buffer);
-
-//	for(int i = 0; i < tokenLines; i++){
-//		sprintf(buffer[i], "%s", tokens[i]);
-//		printf("%s\n", buffer[1]);
-//	}
-
-//	char * strPtr = (char*)(buffer);
-
-//	for(int i = 0; i < tokenLines; i++){
-//		strPtr[i] = strdup(tokens[i]);
-//	}
-
-
-	/* place tokens (char**) into shared memory */
-	int fd_shm;
-	fd_shm = shm_open ("STRINGS", O_CREAT | O_RDWR, 0666);
-	ftruncate(fd_shm, sizeof(char[tokenLines+1][256]));
-	char ** sharedPtr = mmap(0, sizeof(char[tokenLines+1][256]), PROT_WRITE, MAP_SHARED, fd_shm, 0);
-//	printf("INPUT:\n");
-	for(int i = 0; i < tokenLines-1; i++){
-		sharedPtr[i] = strdup(tokens[i]);
-//		printf("%d\t%s\n", i, sharedPtr[i]);
-	}
-//	printf("\n");
-
-	char * tmpStr = (char*)malloc(5*sizeof(char));
+	char * sizeStr = (char*)malloc(sizeof(dataSize) * sizeof(char));
+	sprintf(sizeStr, "%zu", dataSize);
 	pid_t pid;
+
 	/* create children */
 	for(int i = 0; i < tokenLines-1; i++){
 		char iStr[32];
 		if((pid = fork()) == 0){
 			srand(time(NULL));
 			sprintf(iStr, "%d", i);
-			char * args[] = {"./palin", tokens[i], iStr, '\0'};
+			char * args[] = {"./palin", "NULL", iStr, sizeStr, '\0'};
 			execvp("./palin", args);	
 		}
 	}	
 
 	/* wait for children then unlink and clear memeory */
-	cleanExit(tmpStr, tokenLines-1);
-//	free(tokenLinesStr);
-//	shmdt(buffer);
-//	sem_unlink("/SEMA");
-//	shm_unlink("STRINGS");
+	cleanExit(sizeStr, tokenLines-1);
 	return 0;
 }
 
@@ -266,6 +235,7 @@ void cleanExit(char * str, int childC){
 }
 
 void sigintHandler(int sig_num){
+	/* ctrl-c kill */
 	signal(SIGINT, sigintHandler);
 	printf("\nTerminating all...\n");
 	shm_unlink("STRINGS");
