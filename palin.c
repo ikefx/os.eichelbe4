@@ -55,8 +55,8 @@ int main(int argc, char * argv[]){
 		perror("Failed to create named semaphore");
 		return 1;
 	}
-
-
+//	int num;
+//	printf("\tSEM in child begin: %d\n", sem_getvalue(semaphore, &num));
 //	int shmid = shmget(SHMKEY, 4*sizeof(char), IPC_CREAT | 0666);
 //	if(shmid == -1){
 ///		fprintf(stderr, "Error in shmget\n");
@@ -80,7 +80,9 @@ int main(int argc, char * argv[]){
 	/* load strings from shared posix memory */
 //	int fd_shm;
 //	fd_shm = shm_open("STRINGS", O_RDONLY, 0666);
-//	void ** sharedPtr = mmap(NULL, sizeof(char[len+1][256]), PROT_READ, MAP_SHARED, fd_shm, 0);
+//	void ** sharedPtr = mmap(NULL, sizeof(char[12][256]), PROT_READ, MAP_SHARED, fd_shm, 0);
+
+//	printf("%s\n", (char*)sharedPtr[0]);
 
 //	int fd_shm;
 //	fd_shm = shm_open("STRINGS", O_RDONLY, 0666);
@@ -93,13 +95,9 @@ int main(int argc, char * argv[]){
 //	char * indexPtr;
 //	long indexLong = strtol(argv[1], &indexPtr, 10);
 
-
-	
 	/* convert arg3 to long */
-//	printf("%s\n", argv[2]);
 	char * iPtr;
 	long index = strtol(argv[2], &iPtr, 10);
-//	printf("%s ---- %ld\n", argv[2], index);
 
 	printf("\tPID:%d | \"%s\"\t%ld\n", getpid(), argv[1], index);
 	isPalindrome(argv[1]) ? writeIsPalin(argv[1], index) : writeNoPalin(argv[1], index);	
@@ -109,13 +107,14 @@ int main(int argc, char * argv[]){
 		return 1;
 	}
 
+//	printf("\tSEM in child after post: %d\n", sem_getvalue(semaphore, &num));
 	if(r_wait(NULL) == -1)
 		return 1;
 
 	if(sem_close(semaphore) < 0){
 		perror("sem_close() error in child");
 	}
-	shm_unlink("/SEMA");	
+//	shm_unlink("/SEMA");	
 	exit(0);
 }
 

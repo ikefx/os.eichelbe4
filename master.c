@@ -107,20 +107,19 @@ int main(int argc, char * argv[]){
 		perror("Failed to create named semaphore");
 		return 1;
 	}
-//	
-//	int shmid = shmget(SHMKEY, 4*sizeof(char), IPC_CREAT | 0666);
+
+//	const int SIZE = sizeof(tokens);
+//	int shmid = shmget(SHMKEY, sizeof(char) * 4, IPC_CREAT | 0666);
 //	if(shmid == -1){
 //		fprintf(stderr, "Error in shmget\n");
 //		exit(1);
 //	}
-//	char * buffer = (char*)(shmat(shmid, 0,0));
+//	char ** buffer = (char**)(shmat(shmid, 0,0));
 //	char * shBuff = (char*)(buffer);
 
 //	for(int i = 0; i < tokenLines; i++){
-//		sprintf(shBuff, "%s", tokens[i]);
-//		printf("%s\n", shBuff);
-//		printf("%s\n", buffer);
-//
+//		sprintf(buffer[i], "%s", tokens[i]);
+//		printf("%s\n", buffer[1]);
 //	}
 
 //	char * strPtr = (char*)(buffer);
@@ -131,21 +130,21 @@ int main(int argc, char * argv[]){
 
 
 	/* place tokens (char**) into shared memory */
-//	int fd_shm;
-//	fd_shm = shm_open ("STRINGS", O_CREAT | O_RDWR, 0666);
-//	ftruncate(fd_shm, sizeof(char[tokenLines+1][256]));
-//	char ** sharedPtr = mmap(0, sizeof(char[tokenLines+1][256]), PROT_WRITE, MAP_SHARED, fd_shm, 0);
+	int fd_shm;
+	fd_shm = shm_open ("STRINGS", O_CREAT | O_RDWR, 0666);
+	ftruncate(fd_shm, sizeof(char[tokenLines+1][256]));
+	char ** sharedPtr = mmap(0, sizeof(char[tokenLines+1][256]), PROT_WRITE, MAP_SHARED, fd_shm, 0);
 //	printf("INPUT:\n");
-//	for(int i = 0; i < tokenLines; i++){
-//		sharedPtr[i] = strdup(tokens[i]);
+	for(int i = 0; i < tokenLines-1; i++){
+		sharedPtr[i] = strdup(tokens[i]);
 //		printf("%d\t%s\n", i, sharedPtr[i]);
-//	}
+	}
 //	printf("\n");
 
 	char * tmpStr = (char*)malloc(5*sizeof(char));
 	pid_t pid;
 	/* create children */
-	for(int i = 0; i < tokenLines; i++){
+	for(int i = 0; i < tokenLines-1; i++){
 		char iStr[32];
 		if((pid = fork()) == 0){
 			sprintf(iStr, "%d", i);
@@ -155,10 +154,12 @@ int main(int argc, char * argv[]){
 	}
 	
 	/* wait for children then unlink and clear memeory */
+
 	cleanExit(tmpStr);
 //	free(tokenLinesStr);
+//	shmdt(buffer);
 	sem_unlink("/SEMA");
-//	shm_unlink("STRINGS");
+	shm_unlink("STRINGS");
 	return 0;
 }
 
@@ -243,7 +244,6 @@ void clearOldOutput(){
 }
 void cleanExit(char * str){
 	for(int i = 0; i < 19; i++) wait(NULL);
-	//sem_unlink("/semaphore_example");
 	free(str);
 	shm_unlink("STRINGS");
 	sem_unlink("/SEMA");
