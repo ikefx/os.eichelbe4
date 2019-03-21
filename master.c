@@ -119,6 +119,10 @@ int main(int argc, char * argv[]){
 
 	/* create children */
 	for(int i = 0; i < tokenLines-1; i++){
+		if(i >= 20){
+			wait(NULL);
+			i--;	
+		}
 		char iStr[32];
 		if((pid = fork()) == 0){
 			srand(time(NULL));

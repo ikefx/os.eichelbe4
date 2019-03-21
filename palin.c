@@ -58,37 +58,54 @@ int main(int argc, char * argv[]){
 	char * cdataDup = strdup(cdata);
 	char ** tokens;
 
+	sem_t *semaphore;
 	/* process is sleeping for rand() 6 times */
 	for( int i = 0; i < 5; i++ ){
 		sleep(getRandomNumber(0,10));
+		
+		/* load semaphore */
+		if(getnamed("/SEMA", &semaphore, 0) == -1){
+			perror("Failed to create named semaphore");
+			shm_unlink("STRINGS");
+			return 1;
+		}
+
+		/* waits until semaphore can be deincremented */
+		while(sem_wait(semaphore) == -1){
+			perror("Failed to block semaphore");
+			shm_unlink("STRINGS");
+			return 1;
+		}
+
+		sleep(2);		
+
+		/* Do palindrome check and output result to file & stdout */
+		tokens = splitString(cdataDup, '\n');		
+		printf("\tPID:%d%38s  \t%ld\t%s\n", getpid(), tokens[index], index, (isPalindrome(tokens[index]) ? "Palin? Yes" : "Palin? No"));
+		isPalindrome(tokens[index]) ? writeIsPalin(tokens[index], index) : writeNoPalin(tokens[index], index);	
+
+		sleep(2);	
+
+		/* unblocks semaphore */
+		while(sem_post(semaphore) == -1){
+			perror("failed to unlock semaphore");
+			shm_unlink("STRINGS");
+			return 1;
+		};
+
+		if(r_wait(NULL) == -1){
+			return 1;
+		}
+
+		if(sem_close(semaphore) < 0){
+			perror("sem_close() error in child");
+		}
+
+		shm_unlink("STRINGS");
+		exit(0);
 	}
 
-	tokens = splitString(cdataDup, '\n');
-	
-	/* load semaphore */
-	sem_t *semaphore;
-	if(getnamed("/SEMA", &semaphore, 1) == -1){
-		perror("Failed to create named semaphore");
-		return 1;
-	}
-	
-	/* Do palindrome check and output result to file & stdout */
-	printf("\tPID:%d%38s  \t%ld\t%s\n", getpid(), tokens[index], index, (isPalindrome(tokens[index]) ? "Palin? Yes" : "Palin? No"));
-	isPalindrome(tokens[index]) ? writeIsPalin(tokens[index], index) : writeNoPalin(tokens[index], index);	
-	
-	while(sem_post(semaphore) == -1){
-		perror("failed to unlock semlock");
-		return 1;
-	}
-
-	if(r_wait(NULL) == -1)
-		return 1;
-
-	if(sem_close(semaphore) < 0){
-		perror("sem_close() error in child");
-	}
-	shm_unlink("STRINGS");
-	exit(0);
+	return 0;
 }
 
 int getnamed(char *name, sem_t **sem, int val){
