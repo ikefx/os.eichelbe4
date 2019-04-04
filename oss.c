@@ -29,43 +29,71 @@
 #define FLAGS (O_CREAT | O_EXCL)
 #define PERMS (mode_t) (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 
+const int CSIZE = 255;
+
 char ** splitString(char * str, const char delimiter);
 int getLineCount(char * filename);
 void clearOldOutput();
 void cleanExit(char * str, int childCount);
 void sigintHandler(int sig_num);
 void printOptions();
+unsigned long getRandomNumber(unsigned long low, unsigned long high);
 
 int main(int argc, char * argv[]){
 
-	// create process table control blocks
-	// put them in shared memeory
-	// max 18 control blocks
-	// 
-	// create a bit vector, local to oss
-	//
-	// create a clock, 1 in seconds, 1 in nanoseconds
-	
+	printf("\t\t-->>> OSS Start <<<--\n\t\t (Parent ID is %d)\n", getpid());
 
-	printf("\t\t-->>> OSS Start <<<--\n");
+	/* allocate a control block list to shared memory */
+	size_t CBLOCKS_SIZE = sizeof(CSIZE) * 19;
+	int fd_shm;
+	fd_shm = shm_open("CBLOCKS", O_CREAT | O_RDWR, 0666);
+	ftruncate( fd_shm, CBLOCKS_SIZE );
+	void * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, PROT_WRITE, MAP_SHARED, fd_shm, 0);
+
 	signal(SIGINT, sigintHandler);
 	
+	/* Declare loop variables */
 	unsigned int secClock = 0;
 	unsigned long nanoClock = 0;
+	unsigned long randNum = 0;
+	int procCount = 0;
+	pid_t pid = NULL;
 
 	while(1){
+		srand(time(NULL));
+
+		printf("----------------------------\n");
+		printf("Seconds:%15u\nNanos:%17lu\nRandom: %15lu\n", secClock, nanoClock, randNum);
+		printf("%s", (char*)controlBlocksPtr);
+		printf("----------------------------\n");
+		
+		/* create a child goes here, requires condition */
+		if(nanoClock == 0 || secClock == 1){
+			procCount++;
+			printf("\t Creating a new child! Total: %d\n", procCount);
+			if((pid = fork()) == 0){	
+				/* control block singleton */
+				char controlBlock[CSIZE];
+				sprintf(controlBlock, "%d:1:0\n", getpid());
+				
+				/* add control block to shared list */
+				strcat((char*)controlBlocksPtr, controlBlock);
+				exit(0);
+			}
+		}	
+		
 		sleep(1);
-
-
-
+		
+		/* Increment clock and get new random value */
 		secClock++;
 		nanoClock += 1e9;
-		printf("Seconds: %u\nNanos: %lu\n", secClock, nanoClock);
+		randNum = getRandomNumber(0, 4) * getRandomNumber(1e9, 10e9);
+
 		if(secClock > 10)
 			break;
 	}	
 
-
+	shm_unlink("CBLOCKS");
 	return 0;
 }
 
@@ -158,8 +186,7 @@ void sigintHandler(int sig_num){
 	/* ctrl-c kill */
 	signal(SIGINT, sigintHandler);
 	printf("\nTerminating all...\n");
-	shm_unlink("STRINGS");
-	sem_unlink("/SEMA");
+	shm_unlink("CBLOCKS");
 	exit(0);
 }
 
@@ -169,4 +196,13 @@ void printOptions(){
 	printf("> Optional: -i (specify input name, default input.txt)\n");
 	fflush(stdout);
 	exit(0);
+}
+
+unsigned long getRandomNumber(unsigned long low, unsigned long high){
+	/* get random number within range */
+	unsigned long num;
+	for ( int i = 0; i < 1; i++ ){
+		num = (rand() % (high - low + 1)) + low;
+	}
+	return num;
 }
