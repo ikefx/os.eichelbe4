@@ -31,13 +31,17 @@
 
 const int CSIZE = 255;
 
+void longToString(unsigned long num, char * out);
 char ** splitString(char * str, const char delimiter);
-int getLineCount(char * filename);
 void clearOldOutput();
 void cleanExit(char * str, int childCount);
 void sigintHandler(int sig_num);
 void printOptions();
 unsigned long getRandomNumber(unsigned long low, unsigned long high);
+bool allJobsFinished(char * str);
+char * getColumnString(char * str, int row, int col);
+void setColumnString(char * str, char * newStr, int row, int col);
+int getLineCount(char * str);
 
 int main(int argc, char * argv[]){
 
@@ -45,56 +49,100 @@ int main(int argc, char * argv[]){
 
 	/* allocate a control block list to shared memory */
 	size_t CBLOCKS_SIZE = sizeof(CSIZE) * 19;
-	int fd_shm;
-	fd_shm = shm_open("CBLOCKS", O_CREAT | O_RDWR, 0666);
-	ftruncate( fd_shm, CBLOCKS_SIZE );
-	void * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, PROT_WRITE, MAP_SHARED, fd_shm, 0);
+	int fd_shm0 = shm_open("CBLOCKS", O_CREAT | O_RDWR, 0666);
+	ftruncate( fd_shm0, CBLOCKS_SIZE );
+	void * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, PROT_WRITE, MAP_SHARED, fd_shm0, 0);
 
-	signal(SIGINT, sigintHandler);
+	/* allocate a second counter to shared memory */
+	size_t SEC_SIZE = sizeof(unsigned long);
+	int fd_shm1 = shm_open("SECONDS", O_CREAT | O_RDWR, 0666);
+	ftruncate( fd_shm1, SEC_SIZE );
+	unsigned long * secondsPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm1, 0);
+	*secondsPtr = 0;
+
+	/* allocate a nano second counter to shared memory */
+	int fd_shm2 = shm_open("NANOS", O_CREAT | O_RDWR, 0666);
+	ftruncate( fd_shm2, SEC_SIZE );
+	unsigned long * nanosPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm2, 0);
+	*nanosPtr = 0;
 	
 	/* Declare loop variables */
-	unsigned int secClock = 0;
-	unsigned long nanoClock = 0;
 	unsigned long randNum = 0;
 	int procCount = 0;
 	pid_t pid = NULL;
+	bool newChild = true;
 
+	signal(SIGINT, sigintHandler);
+	
 	while(1){
 		srand(time(NULL));
-
-		printf("----------------------------\n");
-		printf("Seconds:%15u\nNanos:%17lu\nRandom: %15lu\n", secClock, nanoClock, randNum);
-		printf("%s", (char*)controlBlocksPtr);
-		printf("----------------------------\n");
 		
+		printf("------------------------------------\n");
+		printf("Seconds:%15lu\nNanos:%17lu\nRandom: %15lu\n", (unsigned long)*secondsPtr, (unsigned long)*nanosPtr, randNum);
+		printf("\tAll Control Blocks:\n%s", strdup((char*)controlBlocksPtr));
+		printf("\n------------------------------------\n");
+
 		/* create a child goes here, requires condition */
-		if(nanoClock == 0 || secClock == 1){
+		if(newChild){
+			/* Establish an index for next child */
+			newChild = false;
+			int childIndex = procCount;
+			char cIndex[32];
+			sprintf(cIndex, "%d", childIndex);
+			
 			procCount++;
 			printf("\t Creating a new child! Total: %d\n", procCount);
+	
+			/* Create the child */
 			if((pid = fork()) == 0){	
+				
 				/* control block singleton */
 				char controlBlock[CSIZE];
-				sprintf(controlBlock, "%d:1:0\n", getpid());
+				sprintf(controlBlock, "%d|%lu|0|0\n", getpid(), *nanosPtr);
 				
 				/* add control block to shared list */
 				strcat((char*)controlBlocksPtr, controlBlock);
-				exit(0);
+				sprintf(cIndex, "%d", childIndex);
+				
+				/* set up command line args */
+				char * args[] = {"./user", cIndex, '\0'};
+				execvp("./user", args);
 			}
 		}	
 		
-		sleep(1);
-		
 		/* Increment clock and get new random value */
-		secClock++;
-		nanoClock += 1e9;
-		randNum = getRandomNumber(0, 4) * getRandomNumber(1e9, 10e9);
+		* secondsPtr += 1;
+		* nanosPtr += 1e9;	
+		
+		sleep(1);
 
-		if(secClock > 10)
+		if(allJobsFinished(strdup((char*)controlBlocksPtr))){
+			/* if all jobs are finished, exit */
+			printf("All jobs complete.. exiting\n");
+			break;
+		}
+		if(*secondsPtr > 100)
+			/* if second counter hits 100, exit */
 			break;
 	}	
 
+	kill(0,SIGTERM);
 	shm_unlink("CBLOCKS");
+	shm_unlink("SECONDS");
+	shm_unlink("NANOS");
 	return 0;
+}
+
+void longToString(unsigned long num, char * out){
+	/* convert number to string */
+	const int n = snprintf(NULL, 0, "%lu", num);
+	assert(n > 0);
+	char buf[n+1];
+	int c = snprintf(buf, n+1, "%lu", num);
+	assert(buf[n] == '\0');
+	assert(c == n);
+	strcpy(out, buf);
+	return;
 }
 
 char ** splitString(char * str, const char delimiter){
@@ -128,25 +176,6 @@ char ** splitString(char * str, const char delimiter){
 		*(result + idx) = 0;
 	}
 	return result;
-}
-
-int getLineCount(char * filename){
-	/* get number of lines in the file */
-	FILE * fp;
-	int count = 0;
-	char c;
-	fp = fopen(filename, "r");
-	if(fp == NULL){
-		printf("Could not open file %s", filename);
-		exit(1);
-	}
-	for(c = getc(fp); c !=EOF; c = getc(fp)){
-		if(c == '\n'){
-			count++;
-		}
-	}
-	fclose(fp);
-	return count;
 }
 
 void clearOldOutput(){
@@ -187,6 +216,8 @@ void sigintHandler(int sig_num){
 	signal(SIGINT, sigintHandler);
 	printf("\nTerminating all...\n");
 	shm_unlink("CBLOCKS");
+	shm_unlink("SECONDS");
+	shm_unlink("NANOS");
 	exit(0);
 }
 
@@ -205,4 +236,56 @@ unsigned long getRandomNumber(unsigned long low, unsigned long high){
 		num = (rand() % (high - low + 1)) + low;
 	}
 	return num;
+}
+
+bool allJobsFinished(char * str){
+	/* parse all complete columns from process table
+ 	 * if there are no incomplete jobs, return true */
+	char ** tokens = splitString(strdup(str), '\n');
+	int lines = getLineCount(str);
+	for(int i = 0; i < lines; i++){
+		char * lastCol = splitString(strdup(tokens[i]), '|')[3];
+		if(strcmp(strdup(lastCol), "0") == 0)
+			return false;
+	}
+	return true;
+}
+
+char * getColumnString(char * str, int row, int col){
+	/* returns the value at (row,col) as a string */
+	return strdup(splitString(strdup(splitString(strdup(str), '\n')[row]), '|')[col]); 
+}
+
+void setColumnString(char * str, char * newStr, int row, int col){
+	/* set a string to (row,col), replacing existing value */
+	char ** tokens = splitString(strdup(str), '\n');
+	char * tempRow = tokens[row];
+	char ** rowValues = splitString(strdup(tempRow), '|');
+	strcpy(rowValues[col], newStr);
+	char newRow[CSIZE];
+	strcat(newRow, rowValues[0]);
+	strcat(newRow, "|");
+	strcat(newRow, rowValues[1]);
+	strcat(newRow, "|");
+	strcat(newRow, rowValues[2]);
+	strcat(newRow, "|");
+	strcat(newRow, rowValues[3]);
+	strcat(newRow, "\n");
+	strcpy(tokens[row], newRow);
+	
+	for(int i = 0; i < getLineCount(strdup(str)); i++){
+		strcpy(str, tokens[0]);
+	}
+	printf("SET NEW RESULT:\nnew string: %s\nBLocks:\n%s\n", newStr, str);
+}
+
+int getLineCount(char * str){
+	/* get number of lines in the file */
+	int count = 0;
+	for(int i = 0; i < strlen(str); i++){
+		if(str[i] == '\n'){
+			count++;
+		}
+	}
+	return count;
 }
