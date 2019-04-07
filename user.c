@@ -36,75 +36,103 @@ int getRandomNumber(int low, int high);
 char ** splitString(char * str, const char delimiter);
 pid_t r_wait(int * stat_loc);
 int getLineCount(char * str);
+int getColumnCount(char * str);
 void insertBlockInBlocks(char * str1, char * str2, int index);
 
 int main(int argc, char * argv[]){
 	fflush(stdout);
-	
 	/* convert argv[1] to long */
 	char * indexPtr;
-	long myProcIndex = strtol(argv[1], &indexPtr, 10);
+	long myProcIndex = strtol(argv[1], &indexPtr, 10);	
 	
-	/* open control block list from shared memory */
-	size_t CBLOCKS_SIZE = sizeof(CSIZE) * 19;
-	int fd_shm0 = shm_open("CBLOCKS", O_RDWR, 0666);
-	void * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, PROT_WRITE, MAP_SHARED, fd_shm0, 0);
-	char * controlBlocksDup = strdup((char*)controlBlocksPtr);
+	/* open second counter from shared memory */
+//	size_t SEC_SIZE = sizeof(unsigned long);
+//	int fd_shm1 = shm_open("SECONDS", O_RDWR, 0666);
+//	unsigned long * secondsPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm1, 0);
+//	unsigned long * lseconds = secondsPtr;
+//	shmdt(secondsPtr);
 	
+//	printf("\t\t\tDID I GET JUST AFTER READ SECONDS? %s:%d?\n", argv[1], getpid());
+	/* open nano counter from shared memory */
+//	int fd_shm2 = shm_open("NANOS", O_RDWR, 0666);
+//	unsigned long * nanosPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm2, 0);
+//	unsigned long * lnanos = nanosPtr;
+//	shmdt(nanosPtr);
+//	printf("\t\t\tDID I GET JUST AFTER READ NANOS? %s:%d?\n", argv[1], getpid());
+	
+
+
 	/* loop until termination criteria is met */
-	while(1){		
-		/* open second counter from shared memory */
-		size_t SEC_SIZE = sizeof(unsigned long);
-		int fd_shm1 = shm_open("SECONDS", O_RDWR, 0666);
-		void * secondsPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm1, 0);
+	while(1){	
 
-		/* open nano counter from shared memory */
-		int fd_shm2 = shm_open("NANOS", O_RDWR, 0666);
-		void * nanosPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm2, 0);
+		/* open control block list from shared memory */
+		size_t CBLOCKS_SIZE = sizeof(CSIZE) * 19;
+		int fd_shm0 = shm_open("CBLOCKS", O_RDWR, 0666);
+		void * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, PROT_WRITE, MAP_SHARED, fd_shm0, 0);
 
-		//setColumnString(strdup((char*)controlBlocksPtr), strdup((char*)nanosPtr), myProcIndex, 1);
-		
-
-		/* get user control block from block table */
-//		char ** procTable;
-//		procTable = splitString(strdup(controlBlocksDup), '\n');
-//		char * myBlock = strdup(procTable[myProcIndex]);
-		
 		/* check if the priority is 0 queue */
-		if(true){
-			srand(getpid());
-			int roll = getRandomNumber(0, 100);
-	
+		if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 2), "0") == 0){
+			srand(getpid() * time(NULL));
+	 		int roll = getRandomNumber(0, 100);
+
+//			char nanosStr[256];
+//			sprintf(nanosStr, "%lu", *nanosPtr);
+//			setColumnString((char*)controlBlocksPtr, nanosStr, myProcIndex, 1);
+
 			/* print data to stdout, mostly for development */
-			printf("\t\t  Child %3ld:%s\n", myProcIndex, getColumnString(strdup(controlBlocksDup), myProcIndex, 0));
+			printf("\t\t  Child %3ld:%s\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0));
 			printf("\t\t----------------------------------------\n");
-			printf("\t\t| Child %3ld:%s | Control Block : %s\n", myProcIndex, getColumnString(strdup(controlBlocksDup), myProcIndex, 0), splitString(strdup((char*)controlBlocksPtr),'\n')[myProcIndex]);
-			printf("\t\t| Child %3ld:%s | Dice Roll     : %d\n", myProcIndex, getColumnString(strdup(controlBlocksDup), myProcIndex, 0),  roll);
+			printf("\t\t| Child %3ld:%s | Control Block : %s\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0), splitString(strdup((char*)controlBlocksPtr),'\n')[myProcIndex]);
+			printf("\t\t| Child %3ld:%s | Dice Roll     : %d\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0), roll);
 			printf("\t\t----------------------------------------\n");
-			printf("test %s\n", getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 3));
-			if(roll < 15 && roll > 0){
+		//	printf("\t\t| Child %3ld:%d | Control Block : %s\n", myProcIndex, getpid(), "BLANK");
+		//	printf("\t\t| Child %3ld:%d | Dice Roll     : %d\n", myProcIndex, getpid(), 320);	
+		//	printf("\t\t----------------------------------------\n");
+
+
+
+			if(roll < 30){
 				/* if child meets termination criteria */
 				printf("\t\t\t---> Child %ld:%d has completed!\n", myProcIndex, getpid());
-				setColumnString((char*)controlBlocksPtr, "1", myProcIndex, 3);
+				setColumnString(strdup((char*)controlBlocksPtr), "1", myProcIndex, 3);
 
-				shm_unlink("CBLOCKS");
-				shm_unlink("SECONDS");
-				shm_unlink("NANOS");
-			//	printf("\t\t\t\t---> Child completed at %s:%s and started at %s\n", (char*)secondsPtr, (char*)nanosPtr, "0");
-				printf("%s", (char*)controlBlocksPtr);
+//				shmdt("CBLOCKS");
+//				shmdt("SECONDS");
+//				shmdt("NANOS");
+				//shm_unlink("/SEMA");
+//				printf("\t\t\t\t---> Child completed at %s:%s and started at %s\n", getColumnString((char*)controlBlocksPtr, myProcIndex, 1), (char*)nanosPtr, "0");
 				exit(0);
 			}
-			if(roll < 15)
-				printf("\t\tERROR: Child shouldnt get here\n");
-		
+
+			/* unblocks semaphore */
+//			while(sem_post(semaphore) == -1){
+//				perror("failed to unlock semaphore");
+//				shm_unlink("STRINGS");	
+//				return 1;
+//			}
+//
+//			if(r_wait(NULL) == -1){
+//				return 1;
+//			}
+//			if(sem_close(semaphore) < 0){
+//				perror("sem_close() error in child");
+//			}
+//				exit(0);
+//			}
+//			if(roll < 15)
+//				printf("\t\tERROR: Child shouldnt get here\n");
+//	
+			sleep(1);
+		}else{
+			printf("%ld:%d is in queue.\n", myProcIndex, getpid());
 			sleep(1);
 		}
 	}
-
+	printf("\t\tDID I MAKE IT HERE?\n");
 	shm_unlink("CBLOCKS");
 	shm_unlink("SECONDS");
 	shm_unlink("NANOS");
-	return 0;
+	exit(0);
 }
 
 int getnamed(char *name, sem_t **sem, int val){
@@ -204,25 +232,48 @@ char * getColumnString(char * str, int row, int col){
 
 void setColumnString(char * str, char * newStr, int row, int col){
 	/* set a string to (row,col), replacing existing value */
-	char ** tokens = splitString(strdup(str), '\n');
-	char * tempRow = tokens[row];
-	char ** rowValues = splitString(strdup(tempRow), '|');
-	strcpy(rowValues[col], newStr);
-	char newRow[CSIZE];
-	strcat(newRow, rowValues[0]);
-	strcat(newRow, "|");
-	strcat(newRow, rowValues[1]);
-	strcat(newRow, "|");
-	strcat(newRow, rowValues[2]);
-	strcat(newRow, "|");
-	strcat(newRow, rowValues[3]);
-	strcat(newRow, "\n");
-	strcpy(tokens[row], newRow);
 	
-	for(int i = 0; i < getLineCount(strdup(str)); i++){
-		strcpy(str, tokens[0]);
+	printf("BLOCKS TO EDIT:\n%s", str);
+
+	char ** tokens = splitString(strdup(str), '\n');
+	char * tempRow = strdup(tokens[row]);
+	char ** tempValues = splitString(strdup(tempRow),'|');
+	strcpy(tempValues[col], newStr);
+
+	printf("Line count: %d\n", getLineCount(strdup(str)));
+
+	char * strCpy = strdup(str);
+
+	strcpy(str, "");	
+	for(int i = 0; i < getLineCount(strdup(strCpy)); i++){
+	//	printf("%s\n", splitString(strdup(str), '\n')[i]);
+		char * tempRows = splitString(strdup(strCpy),'\n')[i];
+		strcat(str, tempRows);
 	}
-	printf("This is a test of child setCol\n");
+	strcat(str, "\n");
+
+
+	char newRow[CSIZE];
+	strcpy(newRow, "");
+
+	for(int j = 0; j < getColumnCount(strdup(tempRow)); j++){
+		if(j < getColumnCount(strdup(tempRow)) - 1){
+			printf("%s|", splitString(strdup(tempRow),'|')[j]);
+			strcat(newRow, splitString(strdup(tempRow),'|')[j]);
+			strcat(newRow, "|");
+		}
+		else{
+			printf("%s\n", splitString(strdup(tempRow),'|')[j]);
+			strcat(newRow, splitString(strdup(tempRow),'|')[j]);
+			strcat(newRow, "\n");
+		}
+	}
+	printf("%s", newRow);
+
+
+	printf("NEW BLOCKS:\n%s", str);
+
+
 }
 
 int getRandomNumber(int low, int high){
@@ -251,5 +302,17 @@ int getLineCount(char * str){
 		}
 	}
 	return count;
+}
+
+
+int getColumnCount(char * str){
+	/* get number of lines in the file */
+	int count = 0;
+	for(int i = 0; i < strlen(str); i++){
+		if(str[i] == '|'){
+			count++;
+		}
+	}
+	return count + 1;
 }
 

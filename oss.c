@@ -31,6 +31,7 @@
 
 const int CSIZE = 255;
 
+int getnamed(char *name, sem_t **sem, int val);
 void longToString(unsigned long num, char * out);
 char ** splitString(char * str, const char delimiter);
 void clearOldOutput();
@@ -46,7 +47,7 @@ int getLineCount(char * str);
 int main(int argc, char * argv[]){
 
 	printf("\t\t-->>> OSS Start <<<--\n\t\t (Parent ID is %d)\n", getpid());
-
+	shm_unlink("CBLOCKS");
 	/* allocate a control block list to shared memory */
 	size_t CBLOCKS_SIZE = sizeof(CSIZE) * 19;
 	int fd_shm0 = shm_open("CBLOCKS", O_CREAT | O_RDWR, 0666);
@@ -70,40 +71,43 @@ int main(int argc, char * argv[]){
 	unsigned long randNum = 0;
 	int procCount = 0;
 	pid_t pid = NULL;
-	bool newChild = true;
-
+	int procStates[18];
 	signal(SIGINT, sigintHandler);
 	
 	while(1){
+
+		/* create random number */
 		srand(time(NULL));
-		
+		randNum = getRandomNumber(0,100);
+
 		printf("------------------------------------\n");
-		printf("Seconds:%15lu\nNanos:%17lu\nRandom: %15lu\n", (unsigned long)*secondsPtr, (unsigned long)*nanosPtr, randNum);
-		printf("\tAll Control Blocks:\n%s", strdup((char*)controlBlocksPtr));
+		printf("Seconds:%15lu\nNanos:%17lu\nRandom: %15lu\n", *secondsPtr, *nanosPtr, randNum);
+		printf("\tAll Control Blocks:\n%s", (char*)controlBlocksPtr);
 		printf("\n------------------------------------\n");
 
 		/* create a child goes here, requires condition */
-		if(newChild){
+		if(procCount < 1 || *secondsPtr == 8){
+			/* add new process to states array */
+			procStates[procCount] = 0;
+
 			/* Establish an index for next child */
-			newChild = false;
-			int childIndex = procCount;
-			char cIndex[32];
-			sprintf(cIndex, "%d", childIndex);
-			
 			procCount++;
 			printf("\t Creating a new child! Total: %d\n", procCount);
 	
 			/* Create the child */
 			if((pid = fork()) == 0){	
-				
+			
+				int childIndex = procCount - 1;
+				char cIndex[32];
+				sprintf(cIndex, "%d", childIndex);
+				printf("Child is index:pid => %d:%d \n", childIndex, getpid());	
 				/* control block singleton */
 				char controlBlock[CSIZE];
 				sprintf(controlBlock, "%d|%lu|0|0\n", getpid(), *nanosPtr);
 				
 				/* add control block to shared list */
-				strcat((char*)controlBlocksPtr, controlBlock);
-				sprintf(cIndex, "%d", childIndex);
-				
+				strcat((char*)controlBlocksPtr, controlBlock);	
+	
 				/* set up command line args */
 				char * args[] = {"./user", cIndex, '\0'};
 				execvp("./user", args);
@@ -113,24 +117,46 @@ int main(int argc, char * argv[]){
 		/* Increment clock and get new random value */
 		* secondsPtr += 1;
 		* nanosPtr += 1e9;	
-		
+
 		sleep(1);
 
-		if(allJobsFinished(strdup((char*)controlBlocksPtr))){
-			/* if all jobs are finished, exit */
-			printf("All jobs complete.. exiting\n");
-			break;
-		}
+		/* round robin */
+//		for(int i = 0; i < 18; i++){
+//			/* flag this process for action */
+//			printf("%d ", procStates[i]);
+//			if(procStates[i] == 0){
+//				setColumnString(strdup((char*)controlBlocksPtr), "0", i, 2);				
+//				break;
+//			}
+//		}
+//		if(allJobsFinished(strdup((char*)controlBlocksPtr))){
+//			/* if all jobs are finished, exit */
+//			printf("All jobs complete.. exiting\n");
+//			break;
+//		}
 		if(*secondsPtr > 100)
 			/* if second counter hits 100, exit */
 			break;
-	}	
+	}
 
 	kill(0,SIGTERM);
 	shm_unlink("CBLOCKS");
 	shm_unlink("SECONDS");
 	shm_unlink("NANOS");
 	return 0;
+}
+
+int getnamed(char *name, sem_t **sem, int val){
+	/* a function to access a named seamphore, creating it if it dosn't already exist */
+	while(((*sem = sem_open(name, FLAGS , PERMS , val)) == SEM_FAILED) && (errno == EINTR));
+	if(*sem != SEM_FAILED)
+		return 0;
+	if(errno != EEXIST)
+		return -1;
+	while(((*sem = sem_open(name, 0)) == SEM_FAILED) && (errno == EINTR));
+	if(*sem != SEM_FAILED)
+		return 0;
+	return -1;	
 }
 
 void longToString(unsigned long num, char * out){
@@ -218,6 +244,7 @@ void sigintHandler(int sig_num){
 	shm_unlink("CBLOCKS");
 	shm_unlink("SECONDS");
 	shm_unlink("NANOS");
+	shm_unlink("/SEMA");
 	exit(0);
 }
 
@@ -276,7 +303,7 @@ void setColumnString(char * str, char * newStr, int row, int col){
 	for(int i = 0; i < getLineCount(strdup(str)); i++){
 		strcpy(str, tokens[0]);
 	}
-	printf("SET NEW RESULT:\nnew string: %s\nBLocks:\n%s\n", newStr, str);
+//	printf("SET NEW RESULT:\nnew string: %s\nBLocks:\n%s\n", newStr, str);
 }
 
 int getLineCount(char * str){
