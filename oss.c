@@ -95,7 +95,7 @@ int main(int argc, char * argv[]){
 
 	signal(SIGINT, sigintHandler);
 	
-	while(1){
+	while(procCount < 19){
 	
 		/* set round-robin index selection */
 		roundRobinIncrementer = (procCount > 0) ? ((roundRobinIncrementer + 1) % procCount) : 0;
@@ -209,9 +209,7 @@ int main(int argc, char * argv[]){
 				snprintf(buf, sizeof buf, "\t--> Process %d:%s has been moved from Queue 3 to Queue 2.", activeIndex, getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 0));
 				writeRow(outfile, buf);
 			}
-
 		}
-
 		
 		/* Increment clock and get new random value */
 		* secondsPtr += 1;
