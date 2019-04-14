@@ -55,7 +55,6 @@ int main(int argc, char * argv[]){
 
 	printf("\t\t-->>> OSS Start <<<--\n\t\t (Parent ID is %d)\n", getpid());
 	writeRow(outfile, "PROGRAM START:\n\n");
-
 	shm_unlink("CBLOCKS");
 
 	/* delete old log file if it exists */
@@ -81,16 +80,25 @@ int main(int argc, char * argv[]){
 	unsigned long * nanosPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm2, 0);
 	*nanosPtr = 0;
 	
+	/* allocate a nano second counter to shared memory */
+	int fd_shm3 = shm_open("IDLE", O_CREAT | O_RDWR, 0666);
+	ftruncate( fd_shm3, SEC_SIZE );
+	unsigned long * idlePtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm3, 0);
+	*idlePtr = 0;
+	
 	/* Declare loop variables */
 	int randNum = 0;
 	int procCount = 0;
 	pid_t pid = NULL;
 	int procStates[18]; // 0 = locked, > 0 = active, -1 = complete
-	int roundRobinIncrementer = 0;
+	int roundRobinIncrementer;
 
 	signal(SIGINT, sigintHandler);
 	
 	while(1){
+	
+		/* set round-robin index selection */
+		roundRobinIncrementer = (procCount > 0) ? ((roundRobinIncrementer + 1) % procCount) : 0;
 
 		/* create random number */
 		srand(getpid()^time(NULL));
@@ -98,11 +106,12 @@ int main(int argc, char * argv[]){
 
 		printf("------------------------------------\n");
 		printf("Seconds:%15lu\nNanos:%17lu\nRandom: %15d\n", *secondsPtr, *nanosPtr, randNum);
+		printf("Total Idle Time: %6.0lf:%ld\n", *idlePtr/1e9, *idlePtr);
 		printf("\tAll Control Blocks:\n%s", (char*)controlBlocksPtr);
 		printf("\n------------------------------------\n");
 
 		/* create a child goes here, requires random condition */
-		if(randNum <= 30){
+		if(randNum <= 30 || *secondsPtr == 1){
 			/* add new process to states array */
 			procStates[procCount] = -0;
 
@@ -126,7 +135,7 @@ int main(int argc, char * argv[]){
 
 				/* control block singleton */
 				char controlBlock[CSIZE];
-				sprintf(controlBlock, "%d|%lu|1|0|0\n", getpid(), *nanosPtr);
+				sprintf(controlBlock, "%d|%lu|1|0|0|-1\n", getpid(), *nanosPtr);
 				
 				/* add control block to shared list */
 				strcat((char*)controlBlocksPtr, controlBlock);	
@@ -139,10 +148,9 @@ int main(int argc, char * argv[]){
 
 		char buf[256];
 		/* Round Robin Tournament */
-		if(procCount > 0)
-			roundRobinIncrementer = (roundRobinIncrementer + 1) % procCount;
+		
 
-		/* if all process locked, set a process to unlocked */
+		/* if all process locked or complete set a process to unlocked */
 		if(allProcessLocked(procStates, procCount)){
 			if(procStates[roundRobinIncrementer] == 0)
 				procStates[roundRobinIncrementer] = 1;
@@ -169,9 +177,6 @@ int main(int argc, char * argv[]){
 	
 				/* QUANTUM */
 				sleep(4);
-				// time increase not necessary, active child is incrementing
-			//	*secondsPtr += 1;
-			//	*nanosPtr += 1e9;
 
 				/* if the process terminated during parent sleep() */
 				if( strcmp(getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 3), "1") == 0 	){
@@ -187,8 +192,7 @@ int main(int argc, char * argv[]){
 				} else {
 					/* move process to queue 3 and change state to locked */
 					setColumnString((char*)controlBlocksPtr, "3", activeIndex, 2);
-					procStates[activeIndex] = 0;
-					
+					procStates[activeIndex] = 0;					
 					snprintf(buf, sizeof buf, "\t--> Process %d:%s did not terminate during their quantum. Moving Process from Queue 0 to Queue 3.", activeIndex, getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 0));
 					writeRow(outfile, buf);
 				}
@@ -196,14 +200,12 @@ int main(int argc, char * argv[]){
 			/* if process is in queue 2 promote to queue 1 */
 			else if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 2), "2") == 0){
 				setColumnString((char*)controlBlocksPtr, "1", activeIndex, 2);
-				
 				snprintf(buf, sizeof buf, "\t--> Process %d:%s has been moved from Queue 2 to Queue 1.", activeIndex, getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 0));
 				writeRow(outfile, buf);
 			}
 			/* if process is in queue 3 promote to queue 2 */
 			else if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 2), "3") == 0){
 				setColumnString((char*)controlBlocksPtr, "2", activeIndex, 2);
-				
 				snprintf(buf, sizeof buf, "\t--> Process %d:%s has been moved from Queue 3 to Queue 2.", activeIndex, getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 0));
 				writeRow(outfile, buf);
 			}
@@ -222,6 +224,7 @@ int main(int argc, char * argv[]){
 			/* if second counter hits var, exit */
 			printf("------------------------------------\n");
 			printf("Seconds:%15lu\nNanos:%17lu\nRandom: %15d\n", *secondsPtr, *nanosPtr, randNum);
+			printf("Total Idle Time: %6.0lf:%ld\n", *idlePtr/1e9, *idlePtr);
 			printf("\tAll Control Blocks:\n%s", (char*)controlBlocksPtr);
 			printf("\n------------------------------------\n");
 			printf("\t--> Maximum duration reached, exiting program.\n");
@@ -229,13 +232,16 @@ int main(int argc, char * argv[]){
 		}
 	}
 	char finbuf[256];
-	snprintf(finbuf, sizeof finbuf, "\nProgram terminated at %lu : %lu\n\n", *secondsPtr, *nanosPtr);
+	snprintf(finbuf, sizeof finbuf, "\nProgram terminated at %lu : %lu (seconds : nanoseconds)\n", *secondsPtr, *nanosPtr);
+	writeRow(outfile, finbuf);
+	snprintf(finbuf, sizeof finbuf, "The total amount of time the CPU was idle is %.0lf : %lu (seconds : nanoseconds)\n", *idlePtr/1e9, *idlePtr);
 	writeRow(outfile, finbuf);
 
 	kill(0,SIGTERM);
 	shm_unlink("CBLOCKS");
 	shm_unlink("SECONDS");
 	shm_unlink("NANOS");
+	shm_unlink("IDLE");
 	return 0;
 }
 
@@ -251,14 +257,14 @@ int getIndexOfUnlockedState(int * stateArray, int size){
 
 bool allProcessLocked(int * stateArray, int size){
 	bool allLocked = true;
-//	printf("\t---- Process States ----\n\t");
+	printf("\t---- Process States ----\n\t");
 	for(int i = 0; i < size; i++){
-//		printf("%d ", stateArray[i]);
+		printf("%d ", stateArray[i]);
 		if(stateArray[i] > 0){
 			allLocked = false;
 		}
 	}
-//	printf("\n\t------------------------\n");
+	printf("\n\t------------------------\n");
 	return allLocked;
 }
 
@@ -379,6 +385,7 @@ void sigintHandler(int sig_num){
 	shm_unlink("CBLOCKS");
 	shm_unlink("SECONDS");
 	shm_unlink("NANOS");
+	shm_unlink("IDLE");
 	exit(0);
 }
 

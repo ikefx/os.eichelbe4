@@ -59,6 +59,10 @@ int main(int argc, char * argv[]){
 	int fd_shm2 = shm_open("NANOS", O_RDWR, 0666);
 	unsigned long * nanosPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm2, 0);
 
+	/* open nano counter from shared memory */
+	int fd_shm3 = shm_open("IDLE", O_RDWR, 0666);
+	unsigned long * idlePtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm3, 0);
+	
 	/* open control block list from shared memory */
 	size_t CBLOCKS_SIZE = sizeof(CSIZE) * 19;
 	int fd_shm0 = shm_open("CBLOCKS", O_RDWR, 0666);
@@ -67,50 +71,57 @@ int main(int argc, char * argv[]){
 	/* loop until termination criteria is met */
 	while(1){	
 
-		/* if the priority is 0 ie the child is active */
+		/* if process priority is 0  */
 		if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 2), "0") == 0){
-	 		srand(time(NULL) ^ getpid());
-			int roll = getRandomNumber(0, 100);
+			* secondsPtr += 1;
+			* nanosPtr += 1e9;
+			/* if process is complete */
+			if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 3), "1") == 0){
+				*idlePtr += 1e9;
+				printf("CPU is idle (child process completed before quantum expired)...\n");
+			}
+			/* if process is incomplete */
+			else if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 3), "0") == 0){
+				srand(time(NULL) ^ getpid());
+				int roll = getRandomNumber(0, 100);
+				/* print data to stdout, mostly for development */
+				printf("\t\t  Child %3ld:%s is active! at %lu : %lu\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0), *secondsPtr, *nanosPtr);
+				printf("\t\t----------------------------------------\n");
+				printf("\t\t| Child %3ld:%s | Control Block : %s\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0), splitString(strdup((char*)controlBlocksPtr),'\n')[myProcIndex]);
+				printf("\t\t| Child %3ld:%s | Dice Roll     : %d\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0), roll);
+				printf("\t\t----------------------------------------\n");
+				if(roll < 15){
+					/* if child meets termination criteria */
+					printf("\t\t\t---> Child %ld:%d has completed!\n", myProcIndex, getpid());
+					setColumnString((char*)controlBlocksPtr, "1", myProcIndex, 3);
+					printf("\t\t\t\t---> Child completed at %lu:%lu and started at %ld\n", *secondsPtr, *nanosPtr, startTime);
+					char buff[128];
+					snprintf(buff, sizeof buff, "%lu", *nanosPtr);
+					setColumnString((char*)controlBlocksPtr, buff, myProcIndex, 5);
+				}
+			}
+			sleep(1);
 
-			char nanosStr[256];
-			sprintf(nanosStr, "%lu", *nanosPtr);
-			setColumnString((char*)controlBlocksPtr, nanosStr, myProcIndex, 1);
-			
-			/* print data to stdout, mostly for development */
-			printf("\t\t  Child %3ld:%s is active!\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0));
-			printf("\t\t----------------------------------------\n");
-			printf("\t\t| Child %3ld:%s | Control Block : %s\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0), splitString(strdup((char*)controlBlocksPtr),'\n')[myProcIndex]);
-			printf("\t\t| Child %3ld:%s | Dice Roll     : %d\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0), roll);
-			printf("\t\t----------------------------------------\n");
-
-			if(roll < 15){
-				/* if child meets termination criteria */
-				printf("\t\t\t---> Child %ld:%d has completed!\n", myProcIndex, getpid());
-				setColumnString((char*)controlBlocksPtr, "1", myProcIndex, 3);
-				
+		/* if priority is not 0 (ie child is locked) */
+		}if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 2), "0") != 0){
+			/* if child is complete, terminate */
+			if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 3), "1") == 0){
 				shmdt("CBLOCKS");
 				shmdt("SECONDS");
 				shmdt("NANOS");
-				printf("\t\t\t\t---> Child completed at %lu:%lu and started at %ld\n", *secondsPtr, *nanosPtr, startTime);
+				shmdt("IDLE");
 				exit(0);
 			}
-
-			sleep(1);
-
-			* secondsPtr += 1;
-			* nanosPtr += 1e9;
-
-
-		
-//		}else if( strcmp(getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 3), "0") == 0  ){
-		}else{
-			sleep(1);
+			else {
+				sleep(1);
+			}
 		}
 	}
 	/* should not reach here */
 	shm_unlink("CBLOCKS");
 	shm_unlink("SECONDS");
 	shm_unlink("NANOS");
+	shm_unlink("IDLE");
 	exit(0);
 }
 
