@@ -235,11 +235,15 @@ int main(int argc, char * argv[]){
 	snprintf(finbuf, sizeof finbuf, "The total amount of time the CPU was idle is %.0lf : %lu (seconds : nanoseconds)\n", *idlePtr/1e9, *idlePtr);
 	writeRow(outfile, finbuf);
 
-	kill(0,SIGTERM);
 	shm_unlink("CBLOCKS");
 	shm_unlink("SECONDS");
 	shm_unlink("NANOS");
 	shm_unlink("IDLE");
+	munmap(secondsPtr, SEC_SIZE);
+	munmap(nanosPtr, SEC_SIZE);
+	munmap(idlePtr, SEC_SIZE);
+	munmap(controlBlocksPtr, CBLOCKS_SIZE);
+	kill(0,SIGTERM);
 	return 0;
 }
 
