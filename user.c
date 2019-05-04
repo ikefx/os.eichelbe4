@@ -68,6 +68,9 @@ int main(int argc, char * argv[]){
 	int fd_shm0 = shm_open("CBLOCKS", O_RDWR, 0666);
 	void * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, PROT_WRITE, MAP_SHARED, fd_shm0, 0);
 
+
+	srand(getpid());
+
 	/* loop until termination criteria is met */
 	while(1){	
 
@@ -82,7 +85,6 @@ int main(int argc, char * argv[]){
 			}
 			/* if process is incomplete */
 			else if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 3), "0") == 0){
-				srand(time(NULL) ^ getpid());
 				int roll = getRandomNumber(0, 100);
 				/* print data to stdout, mostly for development */
 				printf("\t\t  Child %3ld:%s is active! at %lu : %lu\n", myProcIndex, getColumnString(strdup((char*)controlBlocksPtr), myProcIndex, 0), *secondsPtr, *nanosPtr);

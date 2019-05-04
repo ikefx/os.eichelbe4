@@ -27,6 +27,7 @@
 #include <sys/wait.h>
 
 #define FLAGS (O_CREAT | O_EXCL)
+#define FLAGSMEM (PROT_WRITE | PROT_READ | PROT_EXEC)
 #define PERMS (mode_t) (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 
 const int CSIZE = 255;
@@ -63,27 +64,27 @@ int main(int argc, char * argv[]){
 
 	/* allocate a control block list to shared memory */
 	size_t CBLOCKS_SIZE = sizeof(CSIZE) * 19;
-	int fd_shm0 = shm_open("CBLOCKS", O_CREAT | O_RDWR, 0666);
+	int fd_shm0 = shm_open("CBLOCKS", O_CREAT | O_RDWR, 0777);
 	ftruncate( fd_shm0, CBLOCKS_SIZE );
-	void * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, PROT_WRITE, MAP_SHARED, fd_shm0, 0);
+	void * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, FLAGSMEM, MAP_SHARED, fd_shm0, 0);
 
 	/* allocate a second counter to shared memory */
 	size_t SEC_SIZE = sizeof(unsigned long);
-	int fd_shm1 = shm_open("SECONDS", O_CREAT | O_RDWR, 0666);
+	int fd_shm1 = shm_open("SECONDS", O_CREAT | O_RDWR, 0777);
 	ftruncate( fd_shm1, SEC_SIZE );
-	unsigned long * secondsPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm1, 0);
-	*secondsPtr = 0;
+	unsigned long * secondsPtr = mmap(0, SEC_SIZE, FLAGSMEM, MAP_SHARED, fd_shm1, 0);
+	*secondsPtr = 1;
 
 	/* allocate a nano second counter to shared memory */
-	int fd_shm2 = shm_open("NANOS", O_CREAT | O_RDWR, 0666);
+	int fd_shm2 = shm_open("NANOS", O_CREAT | O_RDWR, 0777);
 	ftruncate( fd_shm2, SEC_SIZE );
-	unsigned long * nanosPtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm2, 0);
-	*nanosPtr = 0;
+	unsigned long * nanosPtr = mmap(0, SEC_SIZE, FLAGSMEM, MAP_SHARED, fd_shm2, 0);
+	*nanosPtr = 1e9;
 	
 	/* allocate a nano second counter to shared memory */
-	int fd_shm3 = shm_open("IDLE", O_CREAT | O_RDWR, 0666);
+	int fd_shm3 = shm_open("IDLE", O_CREAT | O_RDWR, 0777);
 	ftruncate( fd_shm3, SEC_SIZE );
-	unsigned long * idlePtr = mmap(0, SEC_SIZE, PROT_WRITE, MAP_SHARED, fd_shm3, 0);
+	unsigned long * idlePtr = mmap(0, SEC_SIZE, FLAGSMEM, MAP_SHARED, fd_shm3, 0);
 	*idlePtr = 0;
 	
 	/* Declare loop variables */
@@ -92,16 +93,17 @@ int main(int argc, char * argv[]){
 	pid_t pid = NULL;
 	int procStates[18]; // 0 = locked, > 0 = active, -1 = complete
 	int roundRobinIncrementer;
+	unsigned long prevTime = 0;
 
 	signal(SIGINT, sigintHandler);
-	
-	while(procCount < 19){
+	srand(getpid());
+
+	while(procCount < 18){
 	
 		/* set round-robin index selection */
 		roundRobinIncrementer = (procCount > 0) ? ((roundRobinIncrementer + 1) % procCount) : 0;
 
 		/* create random number */
-		srand(getpid()^time(NULL));
 		randNum = getRandomNumber(0,100);
 
 		printf("------------------------------------\n");
@@ -111,7 +113,8 @@ int main(int argc, char * argv[]){
 		printf("\n------------------------------------\n");
 
 		/* create a child goes here, requires random condition */
-		if(randNum <= 30 || *secondsPtr == 1){
+		if((randNum <= 33 && *secondsPtr - prevTime >= 1) || *secondsPtr == 1){
+			prevTime = *secondsPtr;
 			/* add new process to states array */
 			procStates[procCount] = -0;
 
@@ -148,8 +151,6 @@ int main(int argc, char * argv[]){
 
 		char buf[256];
 		/* Round Robin Tournament */
-		
-
 		/* if all process locked or complete set a process to unlocked */
 		if(allProcessLocked(procStates, procCount)){
 			if(procStates[roundRobinIncrementer] == 0)
@@ -160,7 +161,7 @@ int main(int argc, char * argv[]){
 
 			/* if process is in queue 1, set to zero and execute */
 			if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 2), "1") == 0){
-				
+											
 				/* add one to the process quantum count */
 				char * strNum = getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 4);
 				char * tempPtr;
@@ -202,18 +203,23 @@ int main(int argc, char * argv[]){
 				setColumnString((char*)controlBlocksPtr, "1", activeIndex, 2);
 				snprintf(buf, sizeof buf, "\t--> Process %d:%s has been moved from Queue 2 to Queue 1.", activeIndex, getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 0));
 				writeRow(outfile, buf);
+				*idlePtr += 5e8;
 			}
 			/* if process is in queue 3 promote to queue 2 */
 			else if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 2), "3") == 0){
 				setColumnString((char*)controlBlocksPtr, "2", activeIndex, 2);
 				snprintf(buf, sizeof buf, "\t--> Process %d:%s has been moved from Queue 3 to Queue 2.", activeIndex, getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 0));
 				writeRow(outfile, buf);
+				*idlePtr += 5e8;
 			}
+
+			*secondsPtr += 1;
+			*nanosPtr += 1e9;
 		}
 		
 		/* Increment clock and get new random value */
-		* secondsPtr += 1;
-		* nanosPtr += 1e9;	
+	//	* secondsPtr += 1;
+	//	* nanosPtr += 1e9;	
 
 		writeRow(outfile, "...");
 		sleep(1);
