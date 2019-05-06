@@ -1,6 +1,6 @@
 /* NEIL EICHELBERGER
  * cs4760 assignment 4
- * master file */
+ * oss file */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,47 +29,38 @@
 #define FLAGS (O_CREAT | O_EXCL)
 #define FLAGSMEM (PROT_WRITE | PROT_READ | PROT_EXEC)
 #define PERMS (mode_t) (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+#define CSIZE 128
 
-const int CSIZE = 255;
-
+size_t CBLOCKS_SIZE = sizeof(CSIZE) * 18;
+size_t SEC_SIZE = sizeof(unsigned long);
 
 int getIndexOfUnlockedState(int * stateArray, int size);
 bool allProcessLocked(int * stateArray, int size);
-void setPriority0(char * str, int index);
-int getnamed(char *name, sem_t **sem, int val);
-void longToString(unsigned long num, char * out);
 char ** splitString(char * str, const char delimiter);
 void clearOldOutput();
-void cleanExit(char * str, int childCount);
 void sigintHandler(int sig_num);
-void printOptions();
 unsigned long getRandomNumber(unsigned long low, unsigned long high);
-bool allJobsFinished(char * str);
 char * getColumnString(char * str, int row, int col);
 void setColumnString(char * str, char * newStr, int row, int col);
 int getColumnCount(char * str);
-int getLineCount(char * str);
+int getRowCount(char * str);
 void writeRow(char * filename, char * str);
 
 int main(int argc, char * argv[]){
 	char * outfile = "log.txt";
-
 	printf("\t\t-->>> OSS Start <<<--\n\t\t (Parent ID is %d)\n", getpid());
 	writeRow(outfile, "PROGRAM START:\n\n");
-	shm_unlink("CBLOCKS");
 
 	/* delete old log file if it exists */
 	if(remove(outfile) == 0)
 		printf("\t\tPrevious %s deleted.\n", outfile);
 
 	/* allocate a control block list to shared memory */
-	size_t CBLOCKS_SIZE = sizeof(CSIZE) * 19;
 	int fd_shm0 = shm_open("CBLOCKS", O_CREAT | O_RDWR, 0777);
 	ftruncate( fd_shm0, CBLOCKS_SIZE );
-	void * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, FLAGSMEM, MAP_SHARED, fd_shm0, 0);
+	char * controlBlocksPtr = mmap(0, CBLOCKS_SIZE, FLAGSMEM, MAP_SHARED, fd_shm0, 0);
 
 	/* allocate a second counter to shared memory */
-	size_t SEC_SIZE = sizeof(unsigned long);
 	int fd_shm1 = shm_open("SECONDS", O_CREAT | O_RDWR, 0777);
 	ftruncate( fd_shm1, SEC_SIZE );
 	unsigned long * secondsPtr = mmap(0, SEC_SIZE, FLAGSMEM, MAP_SHARED, fd_shm1, 0);
@@ -94,15 +85,12 @@ int main(int argc, char * argv[]){
 	int procStates[18]; // 0 = locked, > 0 = active, -1 = complete
 	int roundRobinIncrementer;
 	unsigned long prevTime = 0;
-
+	time_t start, stop;
+	start = stop = time(NULL);
 	signal(SIGINT, sigintHandler);
 	srand(getpid());
 
 	while(procCount < 18){
-	
-		/* set round-robin index selection */
-		roundRobinIncrementer = (procCount > 0) ? ((roundRobinIncrementer + 1) % procCount) : 0;
-
 		/* create random number */
 		randNum = getRandomNumber(0,100);
 
@@ -113,15 +101,13 @@ int main(int argc, char * argv[]){
 		printf("\n------------------------------------\n");
 
 		/* create a child goes here, requires random condition */
-		if((randNum <= 33 && *secondsPtr - prevTime >= 1) || *secondsPtr == 1){
+		if((randNum <= 25 && *secondsPtr - prevTime >= 1) || *secondsPtr == 1){
 			prevTime = *secondsPtr;
 			/* add new process to states array */
-			procStates[procCount] = -0;
-
-			/* Establish an index for next child */
+			procStates[procCount] = 0;
 			procCount++;
+			/* Establish an index for next child */
 			printf("\t Creating a new child! Total: %d\n", procCount);
-	
 			/* Create the child */
 			if((pid = fork()) == 0){	
 				/* convert index to string for arg */	
@@ -138,8 +124,13 @@ int main(int argc, char * argv[]){
 
 				/* control block singleton */
 				char controlBlock[CSIZE];
-				sprintf(controlBlock, "%d|%lu|1|0|0|-1\n", getpid(), *nanosPtr);
-				
+				randNum = getRandomNumber(0,100);
+				/* randomly assign user or process parameter of control block */
+				if(randNum >= 50){
+					sprintf(controlBlock, "%d|%lu|1|0|0|-1|1\n", getpid(), *nanosPtr);
+				}else{
+					sprintf(controlBlock, "%d|%lu|1|0|0|-1|0\n", getpid(), *nanosPtr);
+				}
 				/* add control block to shared list */
 				strcat((char*)controlBlocksPtr, controlBlock);	
 	
@@ -149,12 +140,15 @@ int main(int argc, char * argv[]){
 			}
 		}	
 
+		/* set round-robin index selection */
+		roundRobinIncrementer = (procCount > 0) ? ((roundRobinIncrementer + 1) % procCount) : 0;
+		
 		char buf[256];
 		/* Round Robin Tournament */
 		/* if all process locked or complete set a process to unlocked */
 		if(allProcessLocked(procStates, procCount)){
 			if(procStates[roundRobinIncrementer] == 0)
-				procStates[roundRobinIncrementer] = 1;
+				procStates[roundRobinIncrementer] = roundRobinIncrementer;
 		}else{
 			int activeIndex = getIndexOfUnlockedState(procStates, procCount);
 			procStates[activeIndex] = activeIndex;
@@ -177,7 +171,7 @@ int main(int argc, char * argv[]){
 				writeRow(outfile, buf);
 	
 				/* QUANTUM */
-				sleep(4);
+				usleep(150000*4);
 
 				/* if the process terminated during parent sleep() */
 				if( strcmp(getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 3), "1") == 0 	){
@@ -191,11 +185,21 @@ int main(int argc, char * argv[]){
  					);
 					writeRow(outfile, buf);
 				} else {
-					/* move process to queue 3 and change state to locked */
-					setColumnString((char*)controlBlocksPtr, "3", activeIndex, 2);
-					procStates[activeIndex] = 0;					
-					snprintf(buf, sizeof buf, "\t--> Process %d:%s did not terminate during their quantum. Moving Process from Queue 0 to Queue 3.", activeIndex, getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 0));
-					writeRow(outfile, buf);
+
+					if(strcmp(getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 6), "1") == 0 ){
+						/* move process to queue 3 and change state to locked */
+						setColumnString((char*)controlBlocksPtr, "3", activeIndex, 2);
+						procStates[activeIndex] = 0;					
+						snprintf(buf, sizeof buf, "\t--> Process %d:%s (user process) did not terminate during their quantum. Moving Process from Queue 0 to Queue 3.", activeIndex, getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 0));
+						writeRow(outfile, buf);		
+					}else{
+						/* move process to queue 3 and change state to locked */
+						setColumnString((char*)controlBlocksPtr, "2", activeIndex, 2);
+						procStates[activeIndex] = 0;					
+						snprintf(buf, sizeof buf, "\t--> Process %d:%s (system process) did not terminate during their quantum. Moving Process from Queue 0 to Queue 2.", activeIndex, getColumnString(strdup((char*)controlBlocksPtr), activeIndex, 0));
+						writeRow(outfile, buf);		
+					}
+
 				}
 			}
 			/* if process is in queue 2 promote to queue 1 */
@@ -215,40 +219,44 @@ int main(int argc, char * argv[]){
 
 			*secondsPtr += 1;
 			*nanosPtr += 1e9;
+		}	
+
+		writeRow(outfile, "\n");
+		usleep(150000);
+
+		if(*secondsPtr > 60){
+			printf("\t--> Program exceeded 60 logical seconds, terminating\n");
+			 break;
 		}
-		
-		/* Increment clock and get new random value */
-	//	* secondsPtr += 1;
-	//	* nanosPtr += 1e9;	
 
-		writeRow(outfile, "...");
-		sleep(1);
-
-		if(*secondsPtr > 30){
-			/* if second counter hits var, exit */
-			printf("------------------------------------\n");
-			printf("Seconds:%15lu\nNanos:%17lu\nRandom: %15d\n", *secondsPtr, *nanosPtr, randNum);
-			printf("Total Idle Time: %6.0lf:%ld\n", *idlePtr/1e9, *idlePtr);
-			printf("\tAll Control Blocks:\n%s", (char*)controlBlocksPtr);
-			printf("\n------------------------------------\n");
-			printf("\t--> Maximum duration reached, exiting program.\n");
+		stop = time(NULL);
+		if(stop - start >= 10){
+			printf("\t--> Program exceeded 10 realtime seconds, terminating\n");
 			break;
 		}
+
 	}
+	printf("------------------------------------\n");
+	printf("Seconds:%15lu\nNanos:%17lu\nRandom: %15d\n", *secondsPtr, *nanosPtr, randNum);
+	printf("Total Idle Time: %6.0lf:%ld\n", *idlePtr/1e9, *idlePtr);
+	printf("\tAll Control Blocks:\n%s", (char*)controlBlocksPtr);
+	printf("\n------------------------------------\n");
+	
 	char finbuf[256];
 	snprintf(finbuf, sizeof finbuf, "\nProgram terminated at %lu : %lu (seconds : nanoseconds)\n", *secondsPtr, *nanosPtr);
 	writeRow(outfile, finbuf);
 	snprintf(finbuf, sizeof finbuf, "The total amount of time the CPU was idle is %.0lf : %lu (seconds : nanoseconds)\n", *idlePtr/1e9, *idlePtr);
 	writeRow(outfile, finbuf);
 
-	shm_unlink("CBLOCKS");
-	shm_unlink("SECONDS");
-	shm_unlink("NANOS");
-	shm_unlink("IDLE");
 	munmap(secondsPtr, SEC_SIZE);
 	munmap(nanosPtr, SEC_SIZE);
 	munmap(idlePtr, SEC_SIZE);
 	munmap(controlBlocksPtr, CBLOCKS_SIZE);
+	shm_unlink("CBLOCKS");
+	shm_unlink("SECONDS");
+	shm_unlink("NANOS");
+	shm_unlink("IDLE");
+
 	kill(0,SIGTERM);
 	return 0;
 }
@@ -274,51 +282,6 @@ bool allProcessLocked(int * stateArray, int size){
 	}
 	printf("\n\t------------------------\n");
 	return allLocked;
-}
-
-int getnamed(char *name, sem_t **sem, int val){
-	/* a function to access a named seamphore, creating it if it dosn't already exist */
-	while(((*sem = sem_open(name, FLAGS , PERMS , val)) == SEM_FAILED) && (errno == EINTR));
-	if(*sem != SEM_FAILED)
-		return 0;
-	if(errno != EEXIST)
-		return -1;
-	while(((*sem = sem_open(name, 0)) == SEM_FAILED) && (errno == EINTR));
-	if(*sem != SEM_FAILED)
-		return 0;
-	return -1;	
-}
-
-void setPriority0(char * str, int index){
-	/* set a Control Block Priority to 0, moving others to 3 */
-	char * strDup = (char*)malloc((CSIZE * 18)+1);
-	strDup = strdup(str);
-	int rowCount = getLineCount(strdup(strDup));
-
-	if(rowCount == 0)
-		return;
-	
-	for(int i = 0; i < rowCount; i++){
-		if( strcmp(getColumnString(strdup(strDup), i, 2), "0") == 0 ){
-			setColumnString(strDup, "1", i, 2);
-		}
-	}
-	setColumnString((char*)strDup, "0", 0, 2);
-	strcpy(str, strDup);
-	free(strDup);
-	return;
-}
-
-void longToString(unsigned long num, char * out){
-	/* convert number to string */
-	const int n = snprintf(NULL, 0, "%lu", num);
-	assert(n > 0);
-	char buf[n+1];
-	int c = snprintf(buf, n+1, "%lu", num);
-	assert(buf[n] == '\0');
-	assert(c == n);
-	strcpy(out, buf);
-	return;
 }
 
 char ** splitString(char * str, const char delimiter){
@@ -370,22 +333,6 @@ void clearOldOutput(){
 	return;
 }
 
-void cleanExit(char * str, int childC){
-	/* wait for children, if 100 seconds accures terminate premature */
-	time_t start, stop;
-	start = time(NULL);
-	for(int i = 0; i < 19; i++){
-		stop = time(NULL);	
-		if(stop - start > 100){		
-			printf("--> 100 seconds elapsed, terminating all processes.\n");
-			kill(0, SIGTERM);
-			free(str);
-			shm_unlink("STRINGS");
-		}
-		wait(NULL);
-	}
-}
-
 void sigintHandler(int sig_num){
 	/* ctrl-c kill */
 	signal(SIGINT, sigintHandler);
@@ -397,14 +344,6 @@ void sigintHandler(int sig_num){
 	exit(0);
 }
 
-void printOptions(){
-	/* print command line arguments for user reference */
-	printf("\n========== Command-Line Options ==========\n\n> Optional: -h (view command-line options)\n");
-	printf("> Optional: -i (specify input name, default input.txt)\n");
-	fflush(stdout);
-	exit(0);
-}
-
 unsigned long getRandomNumber(unsigned long low, unsigned long high){
 	/* get random number within range */
 	unsigned long num;
@@ -412,19 +351,6 @@ unsigned long getRandomNumber(unsigned long low, unsigned long high){
 		num = (rand() % (high - low + 1)) + low;
 	}
 	return num;
-}
-
-bool allJobsFinished(char * str){
-	/* parse all complete columns from process table
- 	 * if there are no incomplete jobs, return true */
-	char ** tokens = splitString(strdup(str), '\n');
-	int lines = getLineCount(str);
-	for(int i = 0; i < lines; i++){
-		char * lastCol = splitString(strdup(tokens[i]), '|')[3];
-		if(strcmp(strdup(lastCol), "0") == 0)
-			return false;
-	}
-	return true;
 }
 
 char * getColumnString(char * str, int row, int col){
@@ -443,7 +369,7 @@ void setColumnString(char * str, char * newStr, int row, int col){
 	strcpy(str, "");	
 
 	/* assemble all rows */
-	for(int i = 0; i < getLineCount(strdup(strCpy)); i++){
+	for(int i = 0; i < getRowCount(strdup(strCpy)); i++){
 		if(i == row){
 			/* assemble the new row */
 			char newRow[CSIZE];
@@ -478,7 +404,7 @@ void setColumnString(char * str, char * newStr, int row, int col){
 }
 
 int getColumnCount(char * str){
-	/* get number of lines in the file */
+	/* get number of columns in the file */
 	int count = 0;
 	for(int i = 0; i < strlen(str); i++){
 		if(str[i] == '|'){
@@ -488,7 +414,7 @@ int getColumnCount(char * str){
 	return count;
 }
 
-int getLineCount(char * str){
+int getRowCount(char * str){
 	/* get number of lines in the file */
 	int count = 0;
 	for(int i = 0; i < strlen(str); i++){
